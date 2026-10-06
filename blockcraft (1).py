@@ -57,6 +57,7 @@ import sys
 import threading
 import time
 import traceback
+import unicodedata
 import wave
 import zlib
 from collections import deque
@@ -16722,6 +16723,7 @@ class MciMusic:
         self.k32.GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, wt.DWORD]
         self.k32.GetShortPathNameW.restype = wt.DWORD
         self.opened = False
+        self.has_volume = True            # (the plain wave device has no volume command)
 
     def cmd(self, s, n=256):
         buf = ctypes.create_unicode_buffer(n)
@@ -16748,10 +16750,16 @@ class MciMusic:
         if self.opened:
             self.close()
         p = self.short_path(path).replace('"', '')
+        self.has_volume = True
         try:
             self.cmd('open "%s" type mpegvideo alias %s' % (p, self.ALIAS))
         except MusicError:
-            self.cmd('open "%s" alias %s' % (p, self.ALIAS))
+            # no DirectShow player (Windows N without the Media Feature Pack) or a file it refuses: a WAV can
+            # still go through the plain wave device, which has no volume control of its own
+            if not path.lower().endswith('.wav'):
+                raise
+            self.cmd('open "%s" type waveaudio alias %s' % (p, self.ALIAS))
+            self.has_volume = False
         self.opened = True
 
     def play(self):
@@ -16764,7 +16772,12 @@ class MciMusic:
         self.cmd('resume %s' % self.ALIAS)
 
     def volume(self, v):
-        self.cmd('setaudio %s volume to %d' % (self.ALIAS, int(clamp(v, 0.0, 1.0) * 1000)))
+        if not self.has_volume:
+            return
+        try:
+            self.cmd('setaudio %s volume to %d' % (self.ALIAS, int(clamp(v, 0.0, 1.0) * 1000)))
+        except MusicError:
+            self.has_volume = False       # (this device does not do volume: it plays at the system level)
 
     def mode(self):
         return self.cmd('status %s mode' % self.ALIAS).strip().lower()
@@ -16793,9 +16806,11 @@ def music_title(path):
     """'Aria_Math_-_C418.mp3' -> 'Aria Math - C418'."""
     s = os.path.splitext(os.path.basename(path))[0]
     s = re.sub(r'^[0-9a-f]{8}-', '', s)
-    s = re.sub(r'^\d{1,3}[ ._-]+', '', s)                     # a track number
+    s = re.sub(r'^\d{1,3}\s*[-._]+\s*', '', s)                 # a track number ('03 - ', '03.', '03_')
     s = s.replace('_', ' ')
     s = re.sub(r'\s+', ' ', s).strip()
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join(c for c in s if not unicodedata.combining(c))  # (the menu font only has Latin letters)
     return s[:60] or 'Untitled'
 
 
@@ -16817,6 +16832,8 @@ class MusicPlayer:
         self.events = deque()             # ('started', title) for the game to show
         self.errors = {}                  # path -> failures (a file that fails twice is dropped)
         self.paused_for = False           # paused while a jukebox record plays
+        self.stop_sent = False            # (one stop is enough while a track is opening)
+        self.stuck = 0                    # polls that found a track that never got going
         self.cmds = deque()
         self.cv = threading.Condition()
         self.quit = False
@@ -16860,19 +16877,22 @@ class MusicPlayer:
         """Once a frame: start the next track when the quiet gap is over; give way to a jukebox record."""
         if not self.available():
             return
+        if self.state == 'idle':
+            self.stop_sent = False
+        if not self.enabled:
+            self.paused_for = False
+            if self.state != 'idle' and not self.stop_sent:
+                self.stop_sent = True
+                self.send(('stop',))
+            return
         if jukebox:
-            if self.state == 'playing' and not self.paused_for:
+            if self.state in ('playing', 'opening') and not self.paused_for:
                 self.paused_for = True
                 self.send(('pause',))
             return
         if self.paused_for:
             self.paused_for = False
-            if self.state == 'paused':
-                self.send(('resume',))
-        if not self.enabled:
-            if self.state != 'idle':
-                self.send(('stop',))
-            return
+            self.send(('resume',))                            # (queued after the pause, so the order holds)
         if self.state == 'idle':
             self.gap -= dt
             if self.gap <= 0.0:
@@ -16903,6 +16923,7 @@ class MusicPlayer:
             self.send(('stop', 'skip'))
         else:
             self.gap = 0.0
+        self.paused_for = False
 
     def stop(self):
         if self.state != 'idle':
@@ -16930,12 +16951,16 @@ class MusicPlayer:
             self.cv.notify()
 
     def close(self):
-        self.quit = True
+        """Stop and let the thread go.  The quit command does the closing, so a track that was opening or
+        playing is shut even if the thread was in the middle of something."""
         self.send(('quit',))
         if self.thread is not None:
             self.thread.join(2.0)
-        elif self.backend is not None:
+            if self.thread.is_alive():
+                return                                        # (stuck in a media call: the process end frees it)
+        if self.backend is not None and getattr(self.backend, 'opened', False):
             self._do(('quit',))
+        self.quit = True
 
     # -- the music thread ----------------------------------------------------------------------
     def _loop(self):
@@ -16945,19 +16970,24 @@ class MusicPlayer:
                     self.cv.wait(0.5)
                 cmds = list(self.cmds)
                 self.cmds.clear()
-            for c in cmds:
-                self._do(c)
-            if self.state == 'playing':
-                self._poll()
+            self._run(cmds)
 
     def work(self):
         """What the thread does, for a game without one (tests)."""
         with self.cv:
             cmds = list(self.cmds)
             self.cmds.clear()
-        for c in cmds:
+        self._run(cmds)
+
+    def _run(self, cmds):
+        for i, c in enumerate(cmds):
+            if c[0] == 'open' and any(x[0] in ('stop', 'quit') for x in cmds[i + 1:]):
+                self.state, self.current = 'idle', None       # (stopped before it even opened)
+                continue
             self._do(c)
-        if self.state == 'playing':
+            if c[0] == 'quit':
+                return
+        if self.state == 'playing' and not self.quit:
             self._poll()
 
     def _do(self, c):
@@ -16971,16 +17001,9 @@ class MusicPlayer:
                     b.volume(self.volume * self.MUSIC_LEVEL)
                     b.play()
                 except Exception:
-                    self.errors[path] = self.errors.get(path, 0) + 1
-                    try:
-                        b.close()
-                    except Exception:
-                        pass
-                    self.state, self.current = 'idle', None
-                    self.gap = 2.0
-                    self.events.append(('failed', title))
-                    self.scan()
+                    self._failed(path, title)
                     return
+                self.stuck = 0
                 self.state = 'playing'
                 self.events.append(('started', title))
             elif kind == 'pause':
@@ -16997,20 +17020,32 @@ class MusicPlayer:
             elif kind == 'stop':
                 if self.state != 'idle':
                     b.close()
-                self.state, self.current = 'idle', None
                 self.gap = 0.5 if len(c) > 1 and c[1] == 'skip' else random.uniform(*self.GAP)
+                self.state, self.current = 'idle', None
             elif kind == 'quit':
-                if self.state != 'idle':
+                if self.state != 'idle' or getattr(b, 'opened', False):
                     b.close()
                 self.state, self.current = 'idle', None
+                self.quit = True
         except Exception:
             traceback.print_exc()
             try:
                 b.close()
             except Exception:
                 pass
-            self.state, self.current = 'idle', None
             self.gap = 5.0
+            self.state, self.current = 'idle', None
+
+    def _failed(self, path, title):
+        """A file that would not open or play: counted (two strikes and the game thread drops it)."""
+        self.errors[path] = self.errors.get(path, 0) + 1
+        try:
+            self.backend.close()
+        except Exception:
+            pass
+        self.gap = 2.0
+        self.state, self.current = 'idle', None
+        self.events.append(('failed', title))
 
     def _poll(self):
         """Has the track ended?  (The player reports 'stopped' once it has played out.)"""
@@ -17023,13 +17058,19 @@ class MusicPlayer:
             if mode == 'stopped':
                 ln, pos = b.length_ms(), b.position_ms()
                 if ln and pos < ln - 1500 and pos < 500:
-                    return                                    # (just opened: not started yet)
+                    self.stuck += 1                           # (just opened and not started yet - or never will)
+                    if self.stuck < 12:
+                        return
+                    self._failed(self.last_path, self.current or '')
+                    return
             try:
                 b.close()
             except Exception:
                 pass
-            self.state, self.current = 'idle', None
             self.gap = random.uniform(*self.GAP)
+            self.state, self.current = 'idle', None
+        else:
+            self.stuck = 0
 
 
 def upload_list(old, pos, uv, col):
@@ -18613,16 +18654,17 @@ class Game:
         mp = self.music
         if mp is None:
             return
-        self.audio.external_music = mp.available() and mp.enabled
-        if not mp.available():
-            return
-        mp.update(dt, jukebox=self.audio.track)
         while mp.events:
             kind, title = mp.events.popleft()
             if kind == 'started':
                 self.notify('Now playing: %s' % title, 4)
             elif kind == 'failed':
                 self.notify('Could not play %s' % title, 4)
+                mp.scan()                                     # (a file that failed twice is left out)
+        self.audio.external_music = mp.available() and mp.enabled
+        if not mp.available():
+            return
+        mp.update(dt, jukebox=self.audio.track)
 
     def music_command(self, a):
         """/music [next | stop | on | off | list | rescan]"""
@@ -18641,6 +18683,9 @@ class Game:
             self.add_chat('No music files: put MP3s in %s' % mp.folder)
             return
         if sub == 'next':
+            if not mp.enabled:
+                self.add_chat('Music is off (/music on turns it on)')
+                return
             mp.skip()
             self.add_chat('Skipping...')
         elif sub == 'stop':

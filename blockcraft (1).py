@@ -42,6 +42,7 @@ import colorsys
 import ctypes
 import ctypes.wintypes as wt
 import gc
+import hashlib
 import heapq
 import io
 import json
@@ -1097,6 +1098,8 @@ I_FIREWORK_STAR = _item(560, 'Firework Star', 'firework_star', ctab='misc')
 I_FIRE_CHARGE = _item(561, 'Fire Charge', 'fire_charge', ctab='misc')
 FIREWORK_ITEMS = (I_FIREWORK, I_FIREWORK_STAR)
 I_LEAD = _item(562, 'Lead', 'lead', ctab='tools')
+I_MACE = _item(563, 'Mace', 'mace', stack=1, tool='mace', dur=500, dmg=6, ctab='combat')    # a heavy weapon: falling onto a hit smashes
+I_SHIELD = _item(564, 'Shield', 'shield', stack=1, tool='shield', dur=336, dmg=1, ctab='combat')   # hold right-click to block
 # animals you can put on a lead (and tie to a fence)
 LEASHABLE = ('pig', 'cow', 'sheep', 'chicken', 'horse', 'wolf', 'ocelot', 'mooshroom', 'golem', 'snowman')
 FW_SHAPES = ('Small Ball', 'Large Ball', 'Star-shaped', 'Burst')
@@ -1543,6 +1546,8 @@ def _mk_recipes():
         _r(['M', 'S', 'S'], k, tool_id('shovel', tier))
         _r(['M', 'M', 'S'], k, tool_id('sword', tier))
         _r(['MM', ' S', ' S'], k, tool_id('hoe', tier))
+    _r(['B', 'S'], {'B': B_IRON_BLOCK, 'S': S}, I_MACE)
+    _r(['PIP', 'PPP', ' P '], {'P': P, 'I': I_IRON}, I_SHIELD)
     for m, mat in enumerate((I_LEATHER, I_IRON, I_GOLD, I_DIAMOND)):
         k = {'M': mat}
         _r(['MMM', 'M M'], k, armor_id(m, 0))
@@ -1861,6 +1866,110 @@ SKINS = [('default', 'Default'), ('builder', 'Builder'), ('knight', 'Knight'), (
          ('farmer', 'Farmer'), ('explorer', 'Explorer')]
 SKIN_PARTS = ('hair', 'side', 'face', 'back', 'chin', 'body', 'front', 'arm', 'leg')
 _TILE_NAMES += ['skin%d_%s' % (_k, _p) for _k in range(1, len(SKINS)) for _p in SKIN_PARTS]
+# ---- icons for the skins / capes / animation menus: 16x16 glyphs ('#' solid, 'o' soft), white, tinted when drawn
+UI_ICON_ART = {
+    'pencil': ['................', '.............##.', '............####', '...........####.', '..........####..',
+               '.........####...', '........####....', '.......####.....', '......####......', '.....####.......',
+               '....####........', '...####.........', '..###...........', '..##............', '..#.............',
+               '................'],
+    'eraser': ['................', '................', '.........####...', '........######..', '.......###..###.',
+               '......###....##.', '.....###....###.', '....###....###..', '...###....###...', '..###....###....',
+               '..##....###.....', '..##...###......', '..#######.......', '................', '................',
+               '................'],
+    'dropper': ['................', '............###.', '...........#####', '..........######', '.........###.##.',
+                '........###.....', '.......###......', '......###.......', '.....###........', '....###.........',
+                '...###..........', '..###...........', '.###............', '.##.............', '................',
+                '................'],
+    'bucket': ['................', '......##........', '.....#..#.......', '....#....#......', '...#......#.....',
+               '..#........#....', '..#........#....', '..##########....', '..#........#....', '..#........#.##.',
+               '..#........#.##.', '..#........#.##.', '...#......#..#..', '....######......', '................',
+               '................'],
+    'undo': ['................', '................', '.....#..........', '....##..........', '...###########..',
+             '..#############.', '...###########..', '....##.......##.', '.....#.......##.', '.............##.',
+             '............##..', '..........###...', '....#######.....', '................', '................',
+             '................'],
+    'redo': ['................', '................', '..........#.....', '..........##....', '..###########...',
+             '.#############..', '..###########...', '.##.......##....', '.##.......#.....', '.##.............',
+             '..##............', '...###..........', '.....#######....', '................', '................',
+             '................'],
+    'mirror': ['................', '.......#........', '..##...#...##...', '..###..#..###...', '..####.#.####...',
+               '..#####.#####...', '..####.#.####...', '..###..#..###...', '..##...#...##...', '.......#........',
+               '..##...#...##...', '..###..#..###...', '..####.#.####...', '..###..#..###...', '..##...#...##...',
+               '.......#........'],
+    'copy': ['................', '..######........', '..#....#........', '..#....#........', '..#..######.....',
+             '..#..#....#.....', '..#..#....#.....', '..####....#.....', '.....#....#.....', '.....#....#.....',
+             '.....######.....', '................', '................', '................', '................',
+             '................'],
+    'paste': ['................', '....####........', '..###..###......', '..#......#......', '..#......#......',
+              '..#..#####......', '..#..#...#......', '..#..#...#......', '..#..#...#......', '..####...#......',
+              '.....#...#......', '.....#####......', '................', '................', '................',
+              '................'],
+    'trash': ['................', '......####......', '...##########...', '................', '...##########...',
+              '...#........#...', '...#.#.##.#.#...', '...#.#.##.#.#...', '...#.#.##.#.#...', '...#.#.##.#.#...',
+              '...#.#.##.#.#...', '...#........#...', '....########....', '................', '................',
+              '................'],
+    'check': ['................', '................', '............##..', '...........###..', '..........###...',
+              '.........###....', '..##....###.....', '..###..###......', '...######.......', '....####........',
+              '.....##.........', '................', '................', '................', '................',
+              '................'],
+    'close': ['................', '................', '..##........##..', '..###......###..', '...###....###...',
+              '....###..###....', '.....######.....', '......####......', '.....######.....', '....###..###....',
+              '...###....###...', '..###......###..', '..##........##..', '................', '................',
+              '................'],
+    'plus': ['................', '................', '......####......', '......####......', '......####......',
+             '..############..', '..############..', '..############..', '..############..', '......####......',
+             '......####......', '......####......', '................', '................', '................',
+             '................'],
+    'import': ['................', '......####......', '......####......', '......####......', '......####......',
+               '..############..', '...##########...', '....########....', '.....######.....', '......####......',
+               '.......##.......', '................', '.##..........##.', '.##############.', '................',
+               '................'],
+    'export': ['................', '.......##.......', '......####......', '.....######.....', '....########....',
+               '...##########...', '..############..', '......####......', '......####......', '......####......',
+               '......####......', '................', '.##..........##.', '.##############.', '................',
+               '................'],
+    'rotate': ['................', '.....######.....', '...##......##...', '..#..........#..', '.#............#.',
+               '.#..........#.#.', '..........#####.', '............###.', '.............##.', '................',
+               '.#............#.', '..#..........#..', '...##......##...', '.....######.....', '................',
+               '................'],
+    'zoom_in': ['................', '.....#####......', '...##.....##....', '..#.........#...', '..#....#....#...',
+                '.#.....#.....#..', '.#...#####...#..', '.#.....#.....#..', '..#....#....#...', '..#.........##..',
+                '...##.....##.##.', '.....#####...##.', '..............##', '...............#', '................',
+                '................'],
+    'zoom_out': ['................', '.....#####......', '...##.....##....', '..#.........#...', '..#.........#...',
+                 '.#...........#..', '.#...#####...#..', '.#...........#..', '..#.........#...', '..#.........##..',
+                 '...##.....##.##.', '.....#####...##.', '..............##', '...............#', '................',
+                 '................'],
+    'cape': ['................', '....########....', '...##########...', '...##########...', '...##########...',
+             '...##########...', '...##.####.##...', '...##..##..##...', '...##..##..##...', '...##..##..##...',
+             '...##..##..##...', '...##..##..##...', '..###..##..###..', '..###..##..###..', '................',
+             '................'],
+    'layers': ['................', '.......##.......', '.....######.....', '...##########...', '.##############.',
+               '...##########...', '.....######.....', '.##....##....##.', '...##########...', '.....######.....',
+               '.##....##....##.', '...##########...', '.....######.....', '.......##.......', '................',
+               '................'],
+    'person': ['................', '.....######.....', '.....######.....', '.....######.....', '.....######.....',
+               '.....######.....', '..############..', '..############..', '..#.########.#..', '..#.########.#..',
+               '..#.########.#..', '....###..###....', '....###..###....', '....###..###....', '....###..###....',
+               '................'],
+    'run': ['................', '........###.....', '........###.....', '.....######.....', '...##..###......',
+            '..#....###......', '......####......', '.....#####.##...', '....##.###..#...', '...##...###.....',
+            '..#.....###.....', '.......##.##....', '......##...##...', '.....##.....##..', '....##.......#..',
+            '................'],
+    'grid': ['................', '..####.####.##..', '..####.####.##..', '..####.####.##..', '..####.####.##..',
+             '................', '..####.####.##..', '..####.####.##..', '..####.####.##..', '..####.####.##..',
+             '................', '..####.####.##..', '..####.####.##..', '..####.####.##..', '..####.####.##..',
+             '................'],
+    'edit': ['................', '..........###...', '.........#####..', '........##.###..', '.......##.###...',
+             '......##.###....', '.....##.###.....', '....##.###......', '...##.###.......', '..##.###........',
+             '..#####.........', '..####..........', '..###...........', '................', '..############..',
+             '................'],
+    'dot': ['................', '................', '................', '................', '......####......',
+            '.....######.....', '....########....', '....########....', '....########....', '....########....',
+            '.....######.....', '......####......', '................', '................', '................',
+            '................'],
+}
+_TILE_NAMES += ['ui_' + _k for _k in UI_ICON_ART] + ['mace', 'shield']
 TILE = {n: i for i, n in enumerate(_TILE_NAMES)}
 assert len(TILE) == len(_TILE_NAMES) and len(TILE) <= ATILES * ATILES
 
@@ -1921,7 +2030,7 @@ PACKS = [('default', 'Default', 'The original Blockcraft look'),
          ('sketch', 'Sketchbook', 'Coloured pencil on paper')]
 PACK_KEYS = [k for k, _, _ in PACKS]
 # tiles every pack leaves alone (colour sources, overlays), and the ones only the colourful packs restyle (the HUD)
-PACK_KEEP = {'white', 'noise', 'beacon_beam'} | {'destroy_%d' % _k for _k in range(10)}
+PACK_KEEP = {'white', 'noise', 'beacon_beam'} | {'destroy_%d' % _k for _k in range(10)} | {'ui_' + _k for _k in UI_ICON_ART}
 PACK_HUD = {'heart', 'heart_half', 'heart_empty', 'food', 'food_half', 'food_empty', 'armor_full', 'armor_half',
             'armor_empty', 'bubble', 'heart_gold', 'heart_gold_half', 'heart_poison', 'heart_poison_half',
             'heart_wither', 'heart_wither_half'}
@@ -3196,6 +3305,30 @@ def build_atlas(pack='default'):
     t = new()
     handle(t, 4, 12, 11, 5)
     img['stick'] = t
+    # ------------------------------------------------------------ mace and shield
+    t = new()
+    handle(t, 2, 13, 8, 7)
+    for y in range(1, 8):
+        for x in range(7, 15):
+            d_ = abs(x - 10.5) + abs(y - 4.0)
+            if d_ <= 4.2:
+                pix(t, x, y, (236, 236, 240, 255) if d_ < 1.5 else ((176, 176, 184, 255) if d_ < 3.0 else (104, 104, 112, 255)))
+    for (x, y) in ((7, 2), (14, 2), (7, 6), (14, 6), (10, 0), (11, 8)):
+        pix(t, x, y, (78, 78, 86, 255))
+    img['mace'] = t
+    t = new()
+    for y in range(1, 15):
+        for x in range(2, 14):
+            inside = (abs(x - 7.5) <= 5.5 - max(0, y - 8) * 0.8) and y <= 14
+            if inside:
+                edge = x in (2, 13) or y == 1 or abs(x - 7.5) > 5.0 - max(0, y - 8) * 0.8
+                pix(t, x, y, (120, 124, 132, 255) if edge else ((150, 96, 52, 255) if (x + y) % 2 else (132, 84, 44, 255)))
+    for y in range(3, 12):
+        pix(t, 7, y, (190, 192, 200, 255))
+        pix(t, 8, y, (190, 192, 200, 255))
+    for x in range(4, 12):
+        pix(t, x, 6, (190, 192, 200, 255))
+    img['shield'] = t
 
     def lump(col, spot=None, rx=4.8, ry=4.2):
         t = new()
@@ -6223,6 +6356,16 @@ def build_atlas(pack='default'):
         sw[y][x] = (205, 180, 150, 255)
     img['stew'] = sw
 
+    # ------------------------------------------------------------ menu icons (white glyphs, tinted when drawn)
+    for nm_, art_ in UI_ICON_ART.items():
+        t = new()
+        for y_, row_ in enumerate(art_):
+            for x_, ch_ in enumerate(row_[:16]):
+                if ch_ == '#':
+                    t[y_][x_] = (255, 255, 255, 255)
+                elif ch_ == 'o':
+                    t[y_][x_] = (255, 255, 255, 128)
+        img['ui_' + nm_] = t
     # ------------------------------------------------------------ a texture pack restyles the lot
     if pack != 'default':
         img = pack_all(img, pack)
@@ -6321,6 +6464,428 @@ def liquid_frames(kind, n=16):
 
 
 # ----------------------------------------------------------------------------
+#  CUSTOM SKINS: PNG files, the Minecraft skin layout, capes.  (Pure Python: the game
+#  installs nothing.)  A skin is a 64x64 RGBA raster in the modern layout; old 64x32
+#  skins are widened the way the real game does it.  Everything a player or a LAN peer
+#  hands us goes through here, and anything wrong raises SkinError with a plain reason.
+# ----------------------------------------------------------------------------
+SKIN_W = SKIN_H = 64
+CAPE_W, CAPE_H = 64, 32
+SKIN_MAX_FILE = 256 * 1024            # a PNG bigger than this is refused before it is read
+SKIN_DIMS = ((64, 64), (64, 32))
+CAPE_DIMS = ((64, 32), (22, 17))
+SKIN_MODELS = ('classic', 'slim')
+# second-layer bits (what a skin's "layers" number means)
+LAYER_HAT, LAYER_JACKET, LAYER_SLEEVE_R, LAYER_SLEEVE_L, LAYER_PANTS_R, LAYER_PANTS_L = 1, 2, 4, 8, 16, 32
+LAYER_ALL = 63
+LAYER_NAMES = (('hat', 'Hat', LAYER_HAT), ('jacket', 'Jacket', LAYER_JACKET), ('sleeve_r', 'Right Sleeve', LAYER_SLEEVE_R),
+               ('sleeve_l', 'Left Sleeve', LAYER_SLEEVE_L), ('pants_r', 'Right Pants', LAYER_PANTS_R),
+               ('pants_l', 'Left Pants', LAYER_PANTS_L))
+# the boxes of the skin texture: part -> (u, v, width, height, depth) for the base layer and the overlay
+SKIN_BOXES = {
+    'head': ((0, 0, 8, 8, 8), (32, 0, 8, 8, 8)),
+    'body': ((16, 16, 8, 12, 4), (16, 32, 8, 12, 4)),
+    'arm_r': ((40, 16, 4, 12, 4), (40, 32, 4, 12, 4)),
+    'arm_l': ((32, 48, 4, 12, 4), (48, 48, 4, 12, 4)),
+    'leg_r': ((0, 16, 4, 12, 4), (0, 32, 4, 12, 4)),
+    'leg_l': ((16, 48, 4, 12, 4), (0, 48, 4, 12, 4)),
+}
+SKIN_BOXES_SLIM = dict(SKIN_BOXES)
+SKIN_BOXES_SLIM['arm_r'] = ((40, 16, 3, 12, 4), (40, 32, 3, 12, 4))
+SKIN_BOXES_SLIM['arm_l'] = ((32, 48, 3, 12, 4), (48, 48, 3, 12, 4))
+_PNG_SIG = b'\x89PNG\r\n\x1a\n'
+_PNG_CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+_ADAM7 = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2))
+
+
+class SkinError(Exception):
+    """Something is wrong with a skin, cape or PNG; str(e) is fit to show the player."""
+
+
+def _png_unfilter(rows, bpp, stride, ph):
+    """Undo the per-row PNG filters in place.  rows: bytearray of ph rows, each a filter byte + stride bytes.
+    Returns the pixel bytes (filter bytes stripped)."""
+    out = bytearray(stride * ph)
+    prev = bytearray(stride)
+    rl = stride + 1
+    for y in range(ph):
+        ft = rows[y * rl]
+        cur = bytearray(rows[y * rl + 1:(y + 1) * rl])
+        if ft == 1:                                           # Sub
+            for i in range(bpp, stride):
+                cur[i] = (cur[i] + cur[i - bpp]) & 255
+        elif ft == 2:                                         # Up
+            for i in range(stride):
+                cur[i] = (cur[i] + prev[i]) & 255
+        elif ft == 3:                                         # Average
+            for i in range(stride):
+                a = cur[i - bpp] if i >= bpp else 0
+                cur[i] = (cur[i] + ((a + prev[i]) >> 1)) & 255
+        elif ft == 4:                                         # Paeth
+            for i in range(stride):
+                a = cur[i - bpp] if i >= bpp else 0
+                b = prev[i]
+                c = prev[i - bpp] if i >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                if pa <= pb and pa <= pc:
+                    pr = a
+                elif pb <= pc:
+                    pr = b
+                else:
+                    pr = c
+                cur[i] = (cur[i] + pr) & 255
+        elif ft != 0:
+            raise SkinError('PNG file is corrupt (unknown filter type %d)' % ft)
+        out[y * stride:(y + 1) * stride] = cur
+        prev = cur
+    return out
+
+
+def _png_samples(pix, pw, ph, stride, bd, ch):
+    """Pixel bytes (unfiltered) -> list of per-pixel sample tuples (ints 0..255 for 8/16 bit, raw for smaller)."""
+    out = []
+    if bd == 8:
+        for y in range(ph):
+            row = pix[y * stride:y * stride + pw * ch]
+            out.extend(tuple(row[i:i + ch]) for i in range(0, pw * ch, ch))
+    elif bd == 16:
+        for y in range(ph):
+            row = pix[y * stride:y * stride + pw * ch * 2]
+            out.extend(tuple(row[i:i + ch * 2:2]) for i in range(0, pw * ch * 2, ch * 2))
+    else:                                                     # 1, 2 or 4 bits: grey or palette indices, packed
+        per_byte = 8 // bd
+        mask = (1 << bd) - 1
+        for y in range(ph):
+            row = pix[y * stride:(y + 1) * stride]
+            for x in range(pw):
+                b = row[x // per_byte]
+                shift = 8 - bd * (x % per_byte + 1)
+                out.append(((b >> shift) & mask,))
+    return out
+
+
+def png_decode(data, allowed=None, max_px=256 * 256, max_bytes=SKIN_MAX_FILE):
+    """PNG bytes -> (width, height, RGBA bytearray).  allowed: sizes to accept (others raise SkinError, with the
+    size in the message) - so a huge picture is refused before any pixel work."""
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise SkinError('Not a PNG file')
+    data = bytes(data)
+    if len(data) > max_bytes:
+        raise SkinError('File is too big (%d KB; the limit is %d KB)' % (len(data) // 1024, max_bytes // 1024))
+    if len(data) < 8 or data[:8] != _PNG_SIG:
+        raise SkinError('Not a PNG file (only PNG skins are supported)')
+    pos, ihdr, idat, plte, trns = 8, None, [], None, None
+    while True:
+        if pos + 8 > len(data):
+            raise SkinError('PNG file is truncated')
+        ln = struct.unpack('>I', data[pos:pos + 4])[0]
+        typ = data[pos + 4:pos + 8]
+        end = pos + 8 + ln
+        if ln > len(data) or end + 4 > len(data):
+            raise SkinError('PNG file is truncated')
+        chunk = data[pos + 8:end]
+        crc = struct.unpack('>I', data[end:end + 4])[0]
+        if (zlib.crc32(typ + chunk) & 0xFFFFFFFF) != crc:
+            raise SkinError('PNG file is corrupt (bad checksum in %s)' % typ.decode('ascii', 'replace'))
+        if typ == b'IHDR':
+            if ihdr is not None or ln != 13:
+                raise SkinError('PNG file is corrupt (bad header)')
+            ihdr = struct.unpack('>IIBBBBB', chunk)
+            w, h, bd, ct, cm, fm, il = ihdr
+            if w <= 0 or h <= 0:
+                raise SkinError('PNG file is corrupt (empty picture)')
+            if allowed is not None and (w, h) not in allowed:
+                raise SkinError('Wrong size: %dx%d (needs %s)' % (w, h, ' or '.join('%dx%d' % d for d in allowed)))
+            if w * h > max_px:
+                raise SkinError('Picture is too big: %dx%d' % (w, h))
+            if cm != 0 or fm != 0 or il not in (0, 1) or ct not in _PNG_CHANNELS or bd not in (1, 2, 4, 8, 16) \
+                    or (ct in (2, 4, 6) and bd < 8) or (ct == 3 and bd == 16):
+                raise SkinError('Unsupported PNG format (colour type %d, %d bits)' % (ct, bd))
+        elif ihdr is None:
+            raise SkinError('PNG file is corrupt (no header)')
+        elif typ == b'PLTE':
+            plte = chunk
+        elif typ == b'tRNS':
+            trns = chunk
+        elif typ == b'IDAT':
+            idat.append(chunk)
+        elif typ == b'IEND':
+            break
+        pos = end + 4
+    if ihdr is None or not idat:
+        raise SkinError('PNG file is corrupt (no picture data)')
+    w, h, bd, ct, cm, fm, il = ihdr
+    ch = _PNG_CHANNELS[ct]
+    if ct == 3 and not plte:
+        raise SkinError('PNG file is corrupt (palette missing)')
+    bpp = max(1, ch * bd // 8)
+    expect = sum(((max(0, -((xs - w) // xst)) * ch * bd + 7) // 8 + 1) * max(0, -((ys - h) // yst))
+                 for xs, ys, xst, yst in _ADAM7) if il else h * ((w * ch * bd + 7) // 8 + 1)
+    try:
+        raw = zlib.decompressobj().decompress(b''.join(idat), expect + 1)
+    except zlib.error:
+        raise SkinError('PNG file is corrupt (bad compressed data)')
+    if len(raw) != expect:
+        raise SkinError('PNG file is corrupt (picture data is the wrong length)')
+    px = [None] * (w * h)
+    off = 0
+    passes = _ADAM7 if il else ((0, 0, 1, 1),)
+    for xs, ys, xst, yst in passes:
+        pw = max(0, -((xs - w) // xst))
+        ph = max(0, -((ys - h) // yst))
+        if not pw or not ph:
+            continue
+        stride = (pw * ch * bd + 7) // 8
+        rows = raw[off:off + (stride + 1) * ph]
+        off += (stride + 1) * ph
+        samples = _png_samples(_png_unfilter(rows, bpp, stride, ph), pw, ph, stride, bd, ch)
+        k = 0
+        for j in range(ph):
+            y = ys + j * yst
+            base = y * w + xs
+            for i in range(pw):
+                px[base + i * xst] = samples[k]
+                k += 1
+    out = bytearray(w * h * 4)
+    if ct == 6:
+        for i, s in enumerate(px):
+            out[i * 4:i * 4 + 4] = s
+    elif ct == 2:
+        tkey = struct.unpack('>HHH', trns[:6]) if trns and len(trns) >= 6 else None
+        if bd == 16 and tkey:
+            tkey = tuple(v >> 8 for v in tkey)
+        for i, s in enumerate(px):
+            out[i * 4:i * 4 + 4] = (s[0], s[1], s[2], 0 if tkey and tuple(s) == tkey else 255)
+    elif ct == 4:
+        for i, s in enumerate(px):
+            out[i * 4:i * 4 + 4] = (s[0], s[0], s[0], s[1])
+    elif ct == 0:
+        mx = (1 << bd) - 1 if bd < 8 else 255
+        tkey = struct.unpack('>H', trns[:2])[0] if trns and len(trns) >= 2 else None
+        if bd == 16 and tkey is not None:
+            tkey >>= 8
+        for i, s in enumerate(px):
+            v = s[0]
+            a = 0 if tkey is not None and v == tkey else 255
+            v = v * 255 // mx
+            out[i * 4:i * 4 + 4] = (v, v, v, a)
+    else:                                                     # palette
+        n = len(plte) // 3
+        pal = [(plte[k * 3], plte[k * 3 + 1], plte[k * 3 + 2], trns[k] if trns and k < len(trns) else 255)
+               for k in range(n)]
+        for i, s in enumerate(px):
+            k = s[0]
+            if k >= n:
+                raise SkinError('PNG file is corrupt (bad palette index)')
+            out[i * 4:i * 4 + 4] = pal[k]
+    return w, h, out
+
+
+def png_encode(rgba, w, h):
+    """RGBA bytes -> PNG file bytes (8-bit RGBA, no filtering, well compressed)."""
+    if len(rgba) != w * h * 4:
+        raise ValueError('png_encode: %d bytes for %dx%d' % (len(rgba), w, h))
+    stride = w * 4
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)
+        raw += rgba[y * stride:(y + 1) * stride]
+
+    def chunk(t, d):
+        return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xFFFFFFFF)
+    return (_PNG_SIG + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(bytes(raw), 9)) + chunk(b'IEND', b''))
+
+
+def _rgba_copy(src, sw, sx, sy, dst, dw, dx, dy, w, h, mirror=False):
+    for j in range(h):
+        so = ((sy + j) * sw + sx) * 4
+        do = ((dy + j) * dw + dx) * 4
+        if mirror:
+            for i in range(w):
+                dst[do + (w - 1 - i) * 4:do + (w - i) * 4] = src[so + i * 4:so + i * 4 + 4]
+        else:
+            dst[do:do + w * 4] = src[so:so + w * 4]
+
+
+def _rgba_area_alpha(rgba, w, x0, y0, x1, y1):
+    """(all transparent?, all opaque?) over the rectangle."""
+    all_t = all_o = True
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            a = rgba[(y * w + x) * 4 + 3]
+            if a:
+                all_t = False
+            if a != 255:
+                all_o = False
+            if not all_t and not all_o:
+                return False, False
+    return all_t, all_o
+
+
+def _rgba_set_alpha(rgba, w, x0, y0, x1, y1, a):
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            rgba[(y * w + x) * 4 + 3] = a
+
+
+def skin_detect_model(rgba, w=SKIN_W, h=SKIN_H):
+    """'slim' when the columns only a classic (4 px wide) arm uses are empty on both arms, else 'classic'.
+    Run this on the raster as it came in, before skin_normalize fills the base layer in."""
+    if (w, h) != (64, 64):
+        return 'classic'
+    for x0, y0, x1, y1 in ((54, 20, 56, 32), (50, 16, 52, 20), (46, 52, 48, 64), (42, 48, 44, 52)):
+        if not _rgba_area_alpha(rgba, w, x0, y0, x1, y1)[0]:
+            return 'classic'
+    return 'slim'
+
+
+def skin_normalize(w, h, rgba):
+    """Any accepted skin raster -> the modern 64x64 layout, cleaned the way the real game cleans skins:
+    base-layer boxes made solid; a second layer that is solid all over (old skins' black hats) made clear.
+    Returns (rgba64, was_legacy)."""
+    if (w, h) == (64, 32):
+        out = bytearray(SKIN_W * SKIN_H * 4)
+        out[:64 * 32 * 4] = rgba
+        # the left arm and leg: the right ones mirrored (every face flipped, the two side faces swapped)
+        for (su, sv), (du, dv) in (((40, 16), (32, 48)), ((0, 16), (16, 48))):
+            bw, bh, bd = 4, 12, 4
+            for sx, sy, dx, dy, fw, fh in ((su + bd, sv, du + bd, dv, bw, bd),                      # top
+                                           (su + bd + bw, sv, du + bd + bw, dv, bw, bd),            # bottom
+                                           (su, sv + bd, du + bd + bw, dv + bd, bd, bh),            # right side -> left slot
+                                           (su + bd, sv + bd, du + bd, dv + bd, bw, bh),            # front
+                                           (su + bd + bw, sv + bd, du, dv + bd, bd, bh),            # left side -> right slot
+                                           (su + 2 * bd + bw, sv + bd, du + 2 * bd + bw, dv + bd, bw, bh)):   # back
+                _rgba_copy(rgba, 64, sx, sy, out, 64, dx, dy, fw, fh, mirror=True)
+        legacy = True
+    elif (w, h) == (64, 64):
+        out = bytearray(rgba)
+        legacy = False
+    else:
+        raise SkinError('Wrong size: %dx%d (a skin is 64x64, or 64x32 for old skins)' % (w, h))
+    # base layer: solid
+    for x0, y0, x1, y1 in ((0, 0, 32, 16), (0, 16, 64, 32), (16, 48, 48, 64)):
+        _rgba_set_alpha(out, 64, x0, y0, x1, y1, 255)
+    # second layer: a box that is solid everywhere is an old skin's 'nothing here' - clear it
+    for x0, y0, x1, y1 in ((32, 0, 64, 16), (0, 32, 16, 48), (16, 32, 40, 48), (40, 32, 56, 48), (0, 48, 16, 64),
+                           (48, 48, 64, 64)):
+        if _rgba_area_alpha(out, 64, x0, y0, x1, y1)[1]:
+            _rgba_set_alpha(out, 64, x0, y0, x1, y1, 0)
+    if legacy:                                                # old skins have no jacket / sleeves / pants
+        for x0, y0, x1, y1 in ((0, 32, 56, 48), (0, 48, 16, 64), (48, 48, 64, 64)):
+            _rgba_set_alpha(out, 64, x0, y0, x1, y1, 0)
+    return out, legacy
+
+
+def cape_normalize(w, h, rgba):
+    """A cape picture (64x32 like the real game's, or just the 22x17 cape itself) -> 64x32 raster."""
+    if (w, h) == (CAPE_W, CAPE_H):
+        return bytearray(rgba)
+    if (w, h) == (22, 17):
+        out = bytearray(CAPE_W * CAPE_H * 4)
+        _rgba_copy(rgba, 22, 0, 0, out, CAPE_W, 0, 0, 22, 17)
+        return out
+    raise SkinError('Wrong size: %dx%d (a cape is 64x32, or 22x17)' % (w, h))
+
+
+def cosmetic_hash(rgba):
+    """The id of a skin or cape: a hash of its pixels, so the same picture always gets the same id."""
+    return hashlib.sha1(bytes(rgba)).hexdigest()
+
+
+def is_cosmetic_hash(h):
+    return isinstance(h, str) and len(h) == 40 and all(c in '0123456789abcdef' for c in h)
+
+
+def load_skin_png(data):
+    """PNG bytes from a file or a peer -> dict(rgba, model, legacy, hash).  Raises SkinError."""
+    w, h, rgba = png_decode(data, allowed=SKIN_DIMS)
+    model = skin_detect_model(rgba, w, h)
+    rgba, legacy = skin_normalize(w, h, rgba)
+    return dict(rgba=rgba, model=model, legacy=legacy, hash=cosmetic_hash(rgba))
+
+
+def load_cape_png(data):
+    w, h, rgba = png_decode(data, allowed=CAPE_DIMS)
+    rgba = cape_normalize(w, h, rgba)
+    return dict(rgba=rgba, hash=cosmetic_hash(rgba))
+
+
+def skin_face_uvs(u, v, bw, bh, bd, tw=SKIN_W, th=SKIN_H):
+    """The (u0, v0, u1, v1) of each face of a skin box for tex_box_uv's face order
+    (top, bottom, front -z, back +z, right +x, left -x), in texture fractions."""
+    fx, fy = 1.0 / tw, 1.0 / th
+    e = 0.01                                                  # (a hundredth of a texel in from every edge)
+
+    def r(x0, y0, x1, y1):
+        sx = e if x1 > x0 else -e
+        sy = e if y1 > y0 else -e
+        return ((x0 + sx) * fx, (y0 + sy) * fy, (x1 - sx) * fx, (y1 - sy) * fy)
+    return (r(u + bd + bw, v + bd, u + bd, v),                           # top (both axes turned round)
+            r(u + bd + 2 * bw, v, u + bd + bw, v + bd),                  # bottom (u turned round)
+            r(u + bd, v + bd, u + bd + bw, v + bd + bh),                 # front
+            r(u + 2 * bd + bw, v + bd, u + 2 * bd + 2 * bw, v + bd + bh),  # back
+            r(u, v + bd, u + bd, v + bd + bh),                           # right (+x)
+            r(u + bd + bw, v + bd, u + 2 * bd + bw, v + bd + bh))        # left (-x)
+
+
+def skin_mirror_texel(x, y, model='classic'):
+    """The texel on the other side of the body (for the editor's mirror mode): the same spot on the opposite
+    limb, or the mirrored column of a head / body face.  Returns (x, y) or None when x, y is not on the skin."""
+    boxes = SKIN_BOXES_SLIM if model == 'slim' else SKIN_BOXES
+    pairs = (('arm_r', 'arm_l'), ('leg_r', 'leg_l'))
+    for layer in (0, 1):
+        for a, b in pairs:
+            for src, dst in ((a, b), (b, a)):
+                u, v, bw, bh, bd = boxes[src][layer]
+                du, dv = boxes[dst][layer][:2]
+                f = _skin_face_at(x - u, y - v, bw, bh, bd)
+                if f:
+                    name, fx, fy, fw, fh, lx, ly = f
+                    swap = {'right': 'left', 'left': 'right'}.get(name, name)
+                    ox, oy = _skin_face_origin(swap, bw, bh, bd)
+                    return du + ox + (fw - 1 - lx), dv + oy + ly
+        for part in ('head', 'body'):
+            u, v, bw, bh, bd = boxes[part][layer]
+            f = _skin_face_at(x - u, y - v, bw, bh, bd)
+            if f:
+                name, fx, fy, fw, fh, lx, ly = f
+                swap = {'right': 'left', 'left': 'right'}.get(name, name)
+                ox, oy = _skin_face_origin(swap, bw, bh, bd)
+                if swap != name:                                  # a side face: its twin, same column from the front
+                    return u + ox + lx, v + oy + ly
+                return u + ox + (fw - 1 - lx), v + oy + ly
+    return None
+
+
+def _skin_face_origin(name, bw, bh, bd):
+    return {'top': (bd, 0), 'bottom': (bd + bw, 0), 'right': (0, bd), 'front': (bd, bd), 'left': (bd + bw, bd),
+            'back': (2 * bd + bw, bd)}[name]
+
+
+def _skin_face_at(x, y, bw, bh, bd):
+    """Which face of a box a texel (relative to the box's u, v) falls on: (name, fx, fy, fw, fh, lx, ly)."""
+    for name, fw, fh in (('top', bw, bd), ('bottom', bw, bd), ('right', bd, bh), ('front', bw, bh), ('left', bd, bh),
+                         ('back', bw, bh)):
+        ox, oy = _skin_face_origin(name, bw, bh, bd)
+        if ox <= x < ox + fw and oy <= y < oy + fh:
+            return name, ox, oy, fw, fh, x - ox, y - oy
+    return None
+
+
+def skin_part_at(x, y, model='classic'):
+    """(part, layer, face) under a texel of the skin, or None."""
+    boxes = SKIN_BOXES_SLIM if model == 'slim' else SKIN_BOXES
+    for part, layers in boxes.items():
+        for layer, (u, v, bw, bh, bd) in enumerate(layers):
+            f = _skin_face_at(x - u, y - v, bw, bh, bd)
+            if f:
+                return part, layer, f[0]
+    return None
+
+
+# ----------------------------------------------------------------------------
 #  OPENGL 1.1 THROUGH CTYPES
 # ----------------------------------------------------------------------------
 GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT = 0x4000, 0x0100
@@ -6329,6 +6894,7 @@ GL_ALPHA_TEST, GL_FOG, GL_POLYGON_OFFSET_FILL, GL_LIGHTING, GL_LIGHT0, GL_LIGHT1
 GL_LIGHT2, GL_LIGHT3, GL_LIGHT4 = 0x4002, 0x4003, 0x4004
 GL_COLOR_MATERIAL, GL_NORMALIZE, GL_SCISSOR_TEST = 0x0B57, 0x0BA1, 0x0C11
 GL_POINTS, GL_LINES, GL_TRIANGLES, GL_QUADS = 0, 1, 4, 7
+GL_TRIANGLE_FAN, GL_TRIANGLE_STRIP, GL_LINE_LOOP, GL_LINE_STRIP = 6, 5, 2, 3
 GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA = 0, 1, 0x300, 0x302, 0x303
 GL_ONE_MINUS_DST_COLOR, GL_DST_COLOR = 0x307, 0x306
 GL_LEQUAL, GL_GREATER = 0x203, 0x204
@@ -6359,6 +6925,7 @@ _GL_FUNCS = [
     ('glVertex3f', None, [_c_f] * 3), ('glVertex2f', None, [_c_f] * 2), ('glTexCoord2f', None, [_c_f] * 2),
     ('glNormal3f', None, [_c_f] * 3), ('glColor4f', None, [_c_f] * 4), ('glColor3f', None, [_c_f] * 3),
     ('glGenTextures', None, [_c_i, _c_p]), ('glBindTexture', None, [_c_u, _c_u]),
+    ('glDeleteTextures', None, [_c_i, _c_p]),
     ('glTexImage2D', None, [_c_u, _c_i, _c_i, _c_i, _c_i, _c_i, _c_u, _c_u, _c_p]),
     ('glTexSubImage2D', None, [_c_u, _c_i, _c_i, _c_i, _c_i, _c_i, _c_u, _c_u, _c_p]),
     ('glTexParameteri', None, [_c_u, _c_u, _c_i]), ('glTexEnvi', None, [_c_u, _c_u, _c_i]),
@@ -6451,6 +7018,23 @@ if IS_WIN:
     gdi32.SetBkMode.argtypes = [wt.HDC, ctypes.c_int]
     gdi32.SetTextColor.argtypes = [wt.HDC, wt.DWORD]
     gdi32.GetCharWidth32W.argtypes = [wt.HDC, wt.UINT, wt.UINT, ctypes.POINTER(ctypes.c_int)]
+    # files dropped on the window (skins, capes): the shell's drop messages, hooked into Tk's window
+    shell32 = ctypes.windll.shell32
+    shell32.DragAcceptFiles.argtypes = [wt.HWND, wt.BOOL]
+    shell32.DragQueryFileW.restype = wt.UINT
+    shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, wt.UINT, ctypes.c_wchar_p, wt.UINT]
+    shell32.DragQueryPoint.argtypes = [ctypes.c_void_p, ctypes.POINTER(POINT)]
+    shell32.DragFinish.argtypes = [ctypes.c_void_p]
+    user32.CallWindowProcW.restype = ctypes.c_ssize_t
+    user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+    _SetWindowLongPtr = user32.SetWindowLongPtrW if ctypes.sizeof(ctypes.c_void_p) == 8 else user32.SetWindowLongW
+    _SetWindowLongPtr.restype = ctypes.c_void_p
+    _SetWindowLongPtr.argtypes = [wt.HWND, ctypes.c_int, ctypes.c_void_p]
+    WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
+else:
+    shell32 = None
+WM_DROPFILES, GWLP_WNDPROC = 0x0233, -4
+COS_SCREENS = ('skins', 'skinedit', 'capes', 'anims')      # the menus that take a dropped PNG
 
 
 class GLContext:
@@ -14774,6 +15358,13 @@ class RemotePlayer(Entity):
         self.pdata = None
         self.vehicle = None
         self.dim = 0
+        self.on_ground = True               # (what they tell us, for the animation)
+        self.anim_vy = 0.0
+        self.anim_style = 'pvp'
+        self.swing_kind = 0
+        self.hit_seq = 0
+        self.hit_dir = None
+        self.was_hurt = False
 
 
 class Bobber(Entity):
@@ -15036,6 +15627,1070 @@ def stack_load(s):
     return [int(s[0]), int(s[1]), int(s[2])] if s else None
 
 
+# ----------------------------------------------------------------------------
+#  COSMETIC LIBRARY: your saved skins and capes (blockcraft_worlds/skins, /capes) and the pictures LAN
+#  players sent (skins/cache).  Every picture is kept as our own PNG of the cleaned-up raster, named by
+#  its hash, so the same picture always has the same file and the same id everywhere.
+# ----------------------------------------------------------------------------
+SKIN_DIR = os.path.join(SAVE_DIR, 'skins')
+CAPE_DIR = os.path.join(SAVE_DIR, 'capes')
+COS_CACHE_DIR = os.path.join(SKIN_DIR, 'cache')
+COS_LIBRARY_FILE = os.path.join(SKIN_DIR, 'library.json')
+
+
+class CosmeticLibrary:
+    MAX_SKINS = 64
+    MAX_CAPES = 32
+    MAX_CACHE = 160                       # pictures from other players kept on disk
+    NAME_LEN = 24
+
+    def __init__(self):
+        self.skins = []                   # [{'id', 'name', 'model', 'layers', 'created'}], newest last
+        self.capes = []                   # [{'id', 'name', 'created'}]
+        self.rasters = {}                 # ('skin' | 'cape', id) -> bytearray RGBA (decoded on demand)
+        self.loaded = False
+
+    # -- the index ---------------------------------------------------------------------------------
+    def load(self):
+        self.loaded = True
+        try:
+            with open(COS_LIBRARY_FILE, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+        except Exception:
+            d = {}
+        self.skins, self.capes = [], []
+        for e in (d.get('skins') or []) if isinstance(d, dict) else []:
+            if not isinstance(e, dict) or not is_cosmetic_hash(e.get('id')):
+                continue
+            if not os.path.exists(self.path('skin', e['id'])):
+                continue
+            self.skins.append({'id': e['id'], 'name': self.clean_name(e.get('name'), 'Skin'),
+                               'model': e.get('model') if e.get('model') in SKIN_MODELS else 'classic',
+                               'layers': int(e.get('layers', LAYER_ALL)) & LAYER_ALL,
+                               'created': float(e.get('created') or 0.0)})
+        for e in (d.get('capes') or []) if isinstance(d, dict) else []:
+            if not isinstance(e, dict) or not is_cosmetic_hash(e.get('id')):
+                continue
+            if not os.path.exists(self.path('cape', e['id'])):
+                continue
+            self.capes.append({'id': e['id'], 'name': self.clean_name(e.get('name'), 'Cape'),
+                               'created': float(e.get('created') or 0.0)})
+
+    def save(self):
+        try:
+            write_file_atomic(COS_LIBRARY_FILE, json.dumps({'skins': self.skins, 'capes': self.capes}).encode('utf-8'))
+        except Exception:
+            traceback.print_exc()
+
+    def clean_name(self, name, default):
+        s = ''.join(c for c in str(name or '') if c.isprintable() and c not in '\\/:*?"<>|').strip()
+        return s[:self.NAME_LEN] or default
+
+    def unique_name(self, kind, base):
+        base = self.clean_name(base, 'Skin' if kind == 'skin' else 'Cape')
+        names = {e['name'].lower() for e in (self.skins if kind == 'skin' else self.capes)}
+        if base.lower() not in names:
+            return base
+        k = 2
+        while ('%s %d' % (base, k)).lower() in names:
+            k += 1
+        return ('%s %d' % (base, k))[:self.NAME_LEN]
+
+    def entries(self, kind):
+        return self.skins if kind == 'skin' else self.capes
+
+    def find(self, kind, h):
+        for e in self.entries(kind):
+            if e['id'] == h:
+                return e
+        return None
+
+    # -- files -------------------------------------------------------------------------------------
+    def path(self, kind, h, cache=False):
+        if cache:
+            return os.path.join(COS_CACHE_DIR, h + '.png')
+        return os.path.join(SKIN_DIR if kind == 'skin' else CAPE_DIR, h + '.png')
+
+    def size(self, kind):
+        return (SKIN_W, SKIN_H) if kind == 'skin' else (CAPE_W, CAPE_H)
+
+    def raster(self, kind, h):
+        """The RGBA pixels of a saved or cached picture (None when we don't have it).  Decoded once."""
+        if not is_cosmetic_hash(h):
+            return None
+        key = (kind, h)
+        r = self.rasters.get(key)
+        if r is not None:
+            return r
+        for path in (self.path(kind, h), self.path(kind, h, cache=True)):
+            try:
+                with open(path, 'rb') as f:
+                    data = f.read()
+            except OSError:
+                continue
+            try:
+                w, hh, rgba = png_decode(data, allowed=(self.size(kind),))
+            except SkinError:
+                continue
+            if cosmetic_hash(rgba) != h:                  # a tampered or stale file: not that picture
+                continue
+            self.rasters[key] = rgba
+            return rgba
+        return None
+
+    def png(self, kind, h):
+        """PNG bytes of a picture we have, re-encoded from its pixels (what goes over the LAN)."""
+        r = self.raster(kind, h)
+        if r is None:
+            return None
+        w, hh = self.size(kind)
+        return png_encode(r, w, hh)
+
+    def write(self, kind, h, rgba, cache=False):
+        w, hh = self.size(kind)
+        write_file_atomic(self.path(kind, h, cache), png_encode(rgba, w, hh))
+        self.rasters[(kind, h)] = bytearray(rgba)
+
+    # -- your skins and capes ----------------------------------------------------------------------
+    def add_skin(self, rgba, name, model='classic', layers=LAYER_ALL):
+        """Save a (normalized 64x64) skin.  The same picture saved twice is one entry (renamed)."""
+        h = cosmetic_hash(rgba)
+        e = self.find('skin', h)
+        if e is None:
+            if len(self.skins) >= self.MAX_SKINS:
+                raise SkinError('The skin library is full (%d skins) - delete one first' % self.MAX_SKINS)
+            e = {'id': h, 'name': self.unique_name('skin', name), 'model': model if model in SKIN_MODELS else 'classic',
+                 'layers': int(layers) & LAYER_ALL, 'created': time.time()}
+            self.skins.append(e)
+        self.write('skin', h, rgba)
+        self.save()
+        return e
+
+    def add_cape(self, rgba, name):
+        h = cosmetic_hash(rgba)
+        e = self.find('cape', h)
+        if e is None:
+            if len(self.capes) >= self.MAX_CAPES:
+                raise SkinError('The cape library is full (%d capes) - delete one first' % self.MAX_CAPES)
+            e = {'id': h, 'name': self.unique_name('cape', name), 'created': time.time()}
+            self.capes.append(e)
+        self.write('cape', h, rgba)
+        self.save()
+        return e
+
+    def rename(self, kind, h, name):
+        e = self.find(kind, h)
+        if e:
+            e['name'] = self.unique_name(kind, name) if self.clean_name(name, '').lower() != e['name'].lower() else e['name']
+            self.save()
+        return e
+
+    def set_skin_options(self, h, model=None, layers=None):
+        e = self.find('skin', h)
+        if e:
+            if model in SKIN_MODELS:
+                e['model'] = model
+            if layers is not None:
+                e['layers'] = int(layers) & LAYER_ALL
+            self.save()
+        return e
+
+    def delete(self, kind, h):
+        e = self.find(kind, h)
+        if e is None:
+            return False
+        self.entries(kind).remove(e)
+        self.rasters.pop((kind, h), None)
+        try:
+            os.remove(self.path(kind, h))
+        except OSError:
+            pass
+        self.save()
+        return True
+
+    # -- other players' pictures -------------------------------------------------------------------
+    def cache_put(self, kind, h, rgba):
+        """Keep a picture a LAN player sent (it was decoded and checked already), so a reconnect is instant."""
+        if self.find(kind, h) is not None:
+            return
+        try:
+            self.write(kind, h, rgba, cache=True)
+        except OSError:
+            traceback.print_exc()
+        self.trim_cache()
+
+    def trim_cache(self):
+        try:
+            names = [n for n in os.listdir(COS_CACHE_DIR) if n.endswith('.png')]
+        except OSError:
+            return
+        if len(names) <= self.MAX_CACHE:
+            return
+        paths = [os.path.join(COS_CACHE_DIR, n) for n in names]
+        paths.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0)
+        for p in paths[:len(paths) - self.MAX_CACHE]:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+    def has(self, kind, h):
+        return self.raster(kind, h) is not None
+
+
+# ----------------------------------------------------------------------------
+#  SKIN EDITOR: the pixels of a skin being drawn on, and the tools (no OpenGL in here; the screen is in
+#  the game).  Every stroke is one undo step.
+# ----------------------------------------------------------------------------
+class SkinEditor:
+    MAX_UNDO = 64
+    TOOLS = (('pencil', 'Pencil (P)', 'pencil'), ('eraser', 'Eraser (E)', 'eraser'), ('dropper', 'Eyedropper (I)', 'dropper'),
+             ('bucket', 'Paint bucket (B)', 'bucket'))
+    PARTS = (('head', 'Head'), ('body', 'Body'), ('arm_r', 'R.Arm'), ('arm_l', 'L.Arm'), ('leg_r', 'R.Leg'), ('leg_l', 'L.Leg'))
+    PART_TAGS = {'head': 'head', 'body': 'body', 'arm_r': 'armR', 'arm_l': 'armL', 'leg_r': 'legB', 'leg_l': 'legA'}
+
+    def __init__(self, rgba, model='classic', source=('new', None), name='Skin'):
+        self.rgba = bytearray(rgba)
+        self.model = model if model in SKIN_MODELS else 'classic'
+        self.source = source
+        self.name = name
+        self.tool = 'pencil'
+        self.last_tool = 'pencil'
+        self.color = (255, 255, 255, 255)
+        self.hsv = [0.0, 0.0, 1.0]
+        self.recent = [(60, 60, 150, 255), (0, 170, 170, 255), (225, 175, 140, 255), (70, 45, 25, 255), (255, 255, 255, 255),
+                       (20, 20, 20, 255)]
+        self.mirror = False
+        self.visible = {p: [True, True] for p, _ in self.PARTS}
+        self.undo_stack, self.redo_stack = [], []
+        self.dirty = False
+        self.changed = True
+        self.clipboard = None                    # (face name, w, h, bytes)
+        self.stroke = None                       # the last texel of the stroke being drawn, or None
+        self.hover = None
+
+    # -- pixels --------------------------------------------------------------------------------
+    def inside(self, x, y):
+        return 0 <= x < SKIN_W and 0 <= y < SKIN_H
+
+    def get(self, x, y):
+        if not self.inside(x, y):
+            return None
+        i = (y * SKIN_W + x) * 4
+        return tuple(self.rgba[i:i + 4])
+
+    def _put(self, x, y, c):
+        if self.inside(x, y) and skin_part_at(x, y, self.model) is not None:
+            i = (y * SKIN_W + x) * 4
+            if tuple(self.rgba[i:i + 4]) != tuple(c):
+                self.rgba[i:i + 4] = bytes(c)
+                self.changed = self.dirty = True
+
+    def paint(self, x, y, c=None):
+        """Draw one texel (and its mirror twin when mirroring); c None = erase (transparent)."""
+        c = (0, 0, 0, 0) if c is None else c
+        self._put(x, y, c)
+        if self.mirror:
+            m = skin_mirror_texel(x, y, self.model)
+            if m:
+                self._put(m[0], m[1], c)
+
+    def paint_line(self, x0, y0, x1, y1, c=None):
+        n = max(abs(x1 - x0), abs(y1 - y0))
+        for i in range(n + 1):
+            f = i / float(n) if n else 0.0
+            self.paint(int(round(x0 + (x1 - x0) * f)), int(round(y0 + (y1 - y0) * f)), c)
+
+    def pick(self, x, y):
+        c = self.get(x, y)
+        return c if c and c[3] else None
+
+    def fill(self, x, y, c):
+        """Flood fill the face under x, y with c (texels of the same colour, touching)."""
+        where = skin_part_at(x, y, self.model)
+        if where is None:
+            return
+        target = self.get(x, y)
+        if target == tuple(c):
+            return
+        todo = [(x, y)]
+        seen = set()
+        while todo:
+            px, py = todo.pop()
+            if (px, py) in seen or not self.inside(px, py):
+                continue
+            seen.add((px, py))
+            if skin_part_at(px, py, self.model) != where or self.get(px, py) != target:
+                continue
+            self.paint(px, py, c)
+            todo.extend(((px + 1, py), (px - 1, py), (px, py + 1), (px, py - 1)))
+
+    def face_rect(self, x, y):
+        """(x0, y0, w, h, face name) of the face under a texel, or None."""
+        boxes = SKIN_BOXES_SLIM if self.model == 'slim' else SKIN_BOXES
+        for part, layers in boxes.items():
+            for layer, (u, v, bw, bh, bd) in enumerate(layers):
+                f = _skin_face_at(x - u, y - v, bw, bh, bd)
+                if f:
+                    name, ox, oy, fw, fh, lx, ly = f
+                    return u + ox, v + oy, fw, fh, name
+        return None
+
+    def clear_face(self, x, y):
+        r = self.face_rect(x, y)
+        if not r:
+            return False
+        self.push_undo()
+        x0, y0, fw, fh, _ = r
+        for yy in range(y0, y0 + fh):
+            for xx in range(x0, x0 + fw):
+                self.paint(xx, yy, None)
+        return True
+
+    def clear_part(self, part, layer):
+        boxes = SKIN_BOXES_SLIM if self.model == 'slim' else SKIN_BOXES
+        u, v, bw, bh, bd = boxes[part][layer]
+        self.push_undo()
+        for yy in range(v, v + bd + bh):
+            for xx in range(u, u + 2 * bd + 2 * bw):
+                at = skin_part_at(xx, yy, self.model)
+                if at and at[0] == part and at[1] == layer:
+                    self._put(xx, yy, (0, 0, 0, 0))
+
+    def copy_face(self, x, y):
+        r = self.face_rect(x, y)
+        if not r:
+            return False
+        x0, y0, fw, fh, name = r
+        buf = bytearray()
+        for yy in range(y0, y0 + fh):
+            buf += self.rgba[((yy * SKIN_W) + x0) * 4:((yy * SKIN_W) + x0 + fw) * 4]
+        self.clipboard = (name, fw, fh, bytes(buf))
+        return True
+
+    def paste_face(self, x, y):
+        r = self.face_rect(x, y)
+        if not r or not self.clipboard:
+            return False
+        x0, y0, fw, fh, _ = r
+        name, cw, ch, buf = self.clipboard
+        self.push_undo()
+        for yy in range(min(fh, ch)):
+            for xx in range(min(fw, cw)):
+                i = (yy * cw + xx) * 4
+                self._put(x0 + xx, y0 + yy, tuple(buf[i:i + 4]))
+        return True
+
+    # -- undo ----------------------------------------------------------------------------------
+    def push_undo(self):
+        self.undo_stack.append(bytes(self.rgba))
+        if len(self.undo_stack) > self.MAX_UNDO:
+            del self.undo_stack[0]
+        self.redo_stack = []
+
+    def begin_stroke(self, x, y):
+        if self.stroke is None:
+            self.push_undo()
+        self.stroke = (x, y)
+
+    def end_stroke(self):
+        if self.stroke is not None and self.undo_stack and self.undo_stack[-1] == bytes(self.rgba):
+            self.undo_stack.pop()                 # (a stroke that changed nothing is not an undo step)
+        self.stroke = None
+
+    def undo(self):
+        if not self.undo_stack:
+            return False
+        self.redo_stack.append(bytes(self.rgba))
+        self.rgba = bytearray(self.undo_stack.pop())
+        self.changed = self.dirty = True
+        return True
+
+    def redo(self):
+        if not self.redo_stack:
+            return False
+        self.undo_stack.append(bytes(self.rgba))
+        self.rgba = bytearray(self.redo_stack.pop())
+        self.changed = self.dirty = True
+        return True
+
+    # -- colours -------------------------------------------------------------------------------
+    def set_color(self, c):
+        c = (int(c[0]), int(c[1]), int(c[2]), 255)
+        self.color = c
+        h, s, v = colorsys.rgb_to_hsv(c[0] / 255.0, c[1] / 255.0, c[2] / 255.0)
+        if s > 0.001 and v > 0.001:
+            self.hsv[0] = h
+        self.hsv[1], self.hsv[2] = s, v
+
+    def set_hsv(self, h=None, s=None, v=None):
+        if h is not None:
+            self.hsv[0] = clamp(h, 0.0, 1.0)
+        if s is not None:
+            self.hsv[1] = clamp(s, 0.0, 1.0)
+        if v is not None:
+            self.hsv[2] = clamp(v, 0.0, 1.0)
+        r, g, b = colorsys.hsv_to_rgb(self.hsv[0] % 1.0, self.hsv[1], self.hsv[2])
+        self.color = (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)), 255)
+
+    def remember_color(self):
+        c = self.color
+        if c in self.recent:
+            self.recent.remove(c)
+        self.recent.insert(0, c)
+        del self.recent[12:]
+
+    def hex(self):
+        return '%02x%02x%02x' % self.color[:3]
+
+    def set_hex(self, text):
+        t = text.strip().lstrip('#')
+        if len(t) == 3:
+            t = ''.join(ch * 2 for ch in t)
+        if len(t) != 6:
+            return False
+        try:
+            v = int(t, 16)
+        except ValueError:
+            return False
+        self.set_color(((v >> 16) & 255, (v >> 8) & 255, v & 255))
+        return True
+
+    # -- what the preview shows ----------------------------------------------------------------
+    def layer_mask(self):
+        m = 0
+        for part, bit in (('head', LAYER_HAT), ('body', LAYER_JACKET), ('arm_r', LAYER_SLEEVE_R), ('arm_l', LAYER_SLEEVE_L),
+                          ('leg_r', LAYER_PANTS_R), ('leg_l', LAYER_PANTS_L)):
+            if self.visible[part][1]:
+                m |= bit
+        return m
+
+    def hidden(self):
+        return set((self.PART_TAGS[p], 0) for p in self.visible if not self.visible[p][0])
+
+    def cos(self):
+        return {'skin': ('edit', self.model, self.layer_mask()), 'cape': None, 'hide': self.hidden()}
+
+
+# ----------------------------------------------------------------------------
+#  CAPE PHYSICS: how a cape hangs and swings.  A spring-damped angle away from the back (lifted by running,
+#  falling, water) and a sideways sway (turning, strafing), worked out from how the player moves between
+#  frames - so LAN players' capes move exactly like yours, from their positions alone.
+# ----------------------------------------------------------------------------
+class CapeState:
+    SEGMENTS = 6
+
+    def __init__(self, phase=0.0):
+        self.pitch = 6.0                  # degrees the top of the cape hangs away from the back
+        self.pvel = 0.0
+        self.roll = 0.0                   # sideways swing (degrees)
+        self.rvel = 0.0
+        self.speed = 0.0                  # smoothed forward speed (blocks / s)
+        self.last = None                  # (x, y, z, yaw) last frame
+        self.phase = phase
+        self.t = 0.0
+
+    def update(self, dt, x, y, z, yaw, on_ground=True, sprint=False, sneak=False, in_water=False):
+        dt = clamp(dt, 0.001, 0.1)
+        self.t += dt
+        if self.last is None:
+            self.last = (x, y, z, yaw)
+            return
+        lx, ly, lz, lyaw = self.last
+        self.last = (x, y, z, yaw)
+        dx, dy, dz = x - lx, y - ly, z - lz
+        if abs(dx) > 8 or abs(dz) > 8 or abs(dy) > 8:          # teleported: no swing from that
+            dx = dy = dz = 0.0
+        yr = math.radians(yaw)
+        fx, fz = math.sin(yr), -math.cos(yr)                  # where the player faces
+        fwd = (dx * fx + dz * fz) / dt
+        side = (dx * fz - dz * fx) / dt
+        vy = dy / dt
+        dyaw = (yaw - lyaw + 180.0) % 360.0 - 180.0
+        yaw_rate = clamp(dyaw / dt, -720.0, 720.0)
+        self.speed += (fwd - self.speed) * min(1.0, dt * 10.0)
+        # the angle the cape wants
+        target = 6.0 + clamp(self.speed, -2.0, 9.0) * 8.5
+        if sprint and self.speed > 3.0:
+            target += 6.0
+        if not on_ground:
+            if vy < -2.0:
+                target += min(45.0, (-vy - 2.0) * 5.0)        # falling: the air lifts it
+            elif vy > 1.0:
+                target -= min(10.0, vy * 2.0)                  # rising: it trails down
+        if in_water:
+            target = target * 0.5 + 18.0
+        if sneak:
+            target += 10.0
+        idle = math.sin(self.t * 2.1 + self.phase) * 1.6 + math.sin(self.t * 3.7 + self.phase * 2) * 0.7
+        target = clamp(target + idle, -8.0, 78.0)
+        k, damp = 90.0, 8.5
+        if abs(self.speed) < 0.3 and on_ground:
+            k, damp = 60.0, 6.5                                # settling: a slower, softer swing
+        self.pvel += ((target - self.pitch) * k - self.pvel * damp) * dt
+        self.pitch += self.pvel * dt
+        self.pitch = clamp(self.pitch, -14.0, 85.0)
+        rt = clamp(-yaw_rate * 0.07 - side * 5.0, -40.0, 40.0)
+        self.rvel += ((rt - self.roll) * 70.0 - self.rvel * 7.5) * dt
+        self.roll += self.rvel * dt
+        self.roll = clamp(self.roll, -55.0, 55.0)
+
+    def angles(self):
+        """The angle of each segment from the vertical (the top one first): a cape bends more the lower down."""
+        n = self.SEGMENTS
+        p = self.pitch
+        return [clamp(p * (1.0 + 0.22 * i) + (1.5 if p > 10 else 0.0) * i, -20.0, 88.0) for i in range(n)]
+
+
+# ----------------------------------------------------------------------------
+#  PLAYER ANIMATION: a state machine with blending.  Every player model (you in third person, LAN players,
+#  the menus' previews) owns an AnimState that turns what the player is doing - standing, walking, sprinting,
+#  the phases of a jump, falling, landing, swimming, climbing, sneaking, sitting - into a pose, eases between
+#  poses instead of snapping, and lays the attack swing (per weapon, four-hit combos), hit reactions and the
+#  blocking pose over the top.  Five styles scale it all.  No OpenGL in here.
+# ----------------------------------------------------------------------------
+ANIM_STYLES = [('classic', 'Classic', 'The old game: no idle motion, snappy swings'),
+               ('smooth', 'Smooth', 'Soft blends, gentle breathing, easy landings'),
+               ('pvp', 'PvP', 'Responsive: lean into sprints, sharp combos, hit reactions'),
+               ('stylized', 'Stylized', 'Big, expressive motion on every move'),
+               ('minimal', 'Minimal', 'Quiet: just enough to read what a player does')]
+ANIM_STYLE_IDS = [s[0] for s in ANIM_STYLES]
+ANIM_PARAMS = {
+    'classic': dict(idle=0.0, walk=1.0, arms=1.0, lean=0.0, head=1.0, blend=0.06, land=0.25, hit=0.45, jump=0.3,
+                    attack=1.0, swing_t=1.0, shake=0.6),
+    'smooth': dict(idle=0.6, walk=1.0, arms=0.9, lean=0.5, head=1.0, blend=0.16, land=0.7, hit=0.8, jump=0.8,
+                   attack=0.9, swing_t=1.1, shake=0.7),
+    'pvp': dict(idle=0.5, walk=1.05, arms=1.1, lean=0.9, head=1.0, blend=0.09, land=1.0, hit=1.0, jump=1.0,
+                attack=1.1, swing_t=0.9, shake=1.0),
+    'stylized': dict(idle=1.0, walk=1.25, arms=1.4, lean=1.2, head=1.2, blend=0.12, land=1.3, hit=1.3, jump=1.3,
+                     attack=1.25, swing_t=1.0, shake=1.2),
+    'minimal': dict(idle=0.15, walk=0.8, arms=0.6, lean=0.25, head=0.6, blend=0.12, land=0.4, hit=0.4, jump=0.4,
+                    attack=0.8, swing_t=1.0, shake=0.4),
+}
+# weapon classes (what the swing looks like): index -> name; packed into the swing kind
+WEAPON_CLASSES = ('fist', 'sword', 'axe', 'mace', 'tool', 'item', 'shield', 'bow')
+SWING_SECS = {'fist': 0.3, 'sword': 0.34, 'axe': 0.52, 'mace': 0.68, 'tool': 0.4, 'item': 0.4, 'shield': 0.36, 'bow': 0.4}
+ATTACK_COOLDOWN = {'fist': 0.3, 'sword': 0.3, 'axe': 0.5, 'mace': 0.7, 'tool': 0.35, 'item': 0.3, 'shield': 0.35, 'bow': 0.3}
+
+
+def weapon_class(item):
+    """0 fist .. 7 bow: the class of what is in the hand, for the swing animation."""
+    if not item or item < 256 or item not in ITEMS:
+        return 0 if not item or item < 256 else 5
+    t = ITEMS[item].get('tool')
+    if t == 'sword':
+        return 1
+    if t == 'axe':
+        return 2
+    if t == 'mace':
+        return 3
+    if t in ('pick', 'shovel', 'hoe'):
+        return 4
+    if t == 'shield':
+        return 6
+    if item == I_BOW:
+        return 7
+    return 5
+
+
+def swing_kind_pack(wclass, combo, crit, sprint):
+    return (int(wclass) & 7) | ((int(combo) & 3) << 3) | ((1 if crit else 0) << 5) | ((1 if sprint else 0) << 6)
+
+
+def swing_kind_unpack(k):
+    k = int(k or 0)
+    return k & 7, (k >> 3) & 3, bool(k & 32), bool(k & 64)
+
+
+def anim_pack(style, on_ground, sprint, vy, in_water, on_ladder, flying, hit_dir, swing_kind):
+    """Everything about a player's animation that the state packet carries, as one int."""
+    st = ANIM_STYLE_IDS.index(style) if style in ANIM_STYLE_IDS else 2
+    vys = 0 if abs(vy) < 1.0 else (1 if vy > 0 else (2 if vy > -8.0 else 3))
+    hd = 15 if hit_dir is None else int(((hit_dir % 360.0) / 24.0) + 0.5) % 15
+    return (st | ((1 if on_ground else 0) << 3) | ((1 if sprint else 0) << 4) | (vys << 5) | ((1 if in_water else 0) << 7)
+            | ((1 if on_ladder else 0) << 8) | ((1 if flying else 0) << 9) | (hd << 10) | ((int(swing_kind) & 127) << 14))
+
+
+def anim_unpack(v):
+    v = int(v)
+    vys = (v >> 5) & 3
+    hd = (v >> 10) & 15
+    return dict(style=ANIM_STYLE_IDS[v & 7] if (v & 7) < len(ANIM_STYLE_IDS) else 'pvp', on_ground=bool(v & 8),
+                sprint=bool(v & 16), vy=(0.0, 4.0, -4.0, -12.0)[vys], in_water=bool(v & 128), on_ladder=bool(v & 256),
+                flying=bool(v & 512), hit_dir=None if hd == 15 else hd * 24.0, swing_kind=(v >> 14) & 127)
+
+
+def _ease_out(u):
+    u = clamp(u, 0.0, 1.0)
+    return 1 - (1 - u) ** 3
+
+
+def _smooth(u):
+    u = clamp(u, 0.0, 1.0)
+    return u * u * (3 - 2 * u)
+
+
+def swing_envelope(f, wclass):
+    """(strike 0..1 with a little follow-through, wind-up 0..1) over a swing's progress f: a fast weapon gets
+    there at once, an axe winds up, a mace heaves."""
+    if wclass == 2:                                           # axe: a wind-up, a heavy chop, held, then back
+        a, b, c = 0.2, 0.45, 0.75
+    elif wclass == 3:                                         # mace: a long heave over the shoulder
+        a, b, c = 0.28, 0.5, 0.78
+    else:
+        a, b, c = 0.08, 0.38, 0.64
+    if f < a:
+        return 0.0, f / a
+    if f < b:
+        u = (f - a) / (b - a)
+        return _ease_out(u) if wclass not in (2, 3) else _smooth(u), 1 - u
+    if f < c:
+        u = (f - b) / (c - b)
+        return 1.0 + 0.12 * math.sin(u * math.pi), 0.0
+    u = (f - c) / max(1e-6, 1 - c)
+    return 1 - _smooth(u), 0.0
+
+
+class AnimState:
+    CHANNELS = ('head', 'body', 'armR', 'armL', 'legA', 'legB')
+    STATES = ('idle', 'walk', 'sprint', 'sneak', 'jump', 'rise', 'apex', 'fall', 'land', 'swim', 'climb', 'sit', 'fly')
+
+    def __init__(self, seed=0.0):
+        self.cur = {c: [0.0, 0.0, 0.0] for c in self.CHANNELS}
+        self.cur_y = 0.0
+        self.cur_torso = [0.0, 0.0, 0.0]
+        self.pose = self.make_pose()
+        self.state = 'idle'
+        self.state_t = 0.0
+        self.tau = 0.1
+        self.t = seed
+        self.air_t = 0.0
+        self.land_t = 9.0
+        self.land_amt = 0.0
+        self.was_ground = True
+        self.last_pos = None
+        self.est_vy = 0.0
+        self.min_vy = 0.0
+        self.speed = 0.0
+        self.swim_t = 0.0
+        self.hit_seq = 0
+        self.hit_t = 0.0
+        self.hit_dir = None
+        self.frame = -1
+        self.frame_t = -1.0
+
+    def make_pose(self):
+        p = {c: tuple(self.cur[c]) for c in self.CHANNELS}
+        p['y'] = self.cur_y
+        p['torso'] = tuple(self.cur_torso)
+        return p
+
+    # -- which state ---------------------------------------------------------------------------
+    def pick_state(self, inp, vy, speed):
+        if inp.get('sitting'):
+            return 'sit'
+        if inp.get('flying') and not inp['on_ground']:
+            return 'fly'
+        if inp.get('in_water') and not inp['on_ground']:
+            return 'swim'
+        if inp.get('on_ladder') and not inp['on_ground']:
+            return 'climb'
+        if not inp['on_ground']:
+            if self.air_t < 0.1 and vy > 0.5:
+                return 'jump'
+            if vy > 1.2:
+                return 'rise'
+            if vy < -1.6:
+                return 'fall'
+            return 'apex'
+        if self.land_t < 0.28:
+            return 'land'
+        if inp.get('sneak'):
+            return 'sneak'
+        if speed > 0.25:
+            return 'sprint' if (inp.get('sprint') or speed > 5.0) else 'walk'
+        return 'idle'
+
+    def transition_tau(self, old, new, st):
+        base = st['blend']
+        if base <= 0.065:
+            return base
+        if new == 'land':
+            return 0.07
+        if new == 'jump':
+            return 0.05
+        if old == 'land':
+            return base * 1.8
+        if new == 'swim' or old == 'swim':
+            return base * 2.0
+        if (old, new) in (('walk', 'sprint'), ('sprint', 'walk')):
+            return base * 1.3
+        if new in ('fall', 'apex', 'rise'):
+            return base * 1.5
+        return base
+
+    # -- the pose for a state ------------------------------------------------------------------
+    def locomotion(self, inp, st, vy, speed):
+        """The target pose of the current state: tag -> [rx, ry, rz], plus y and torso offsets."""
+        t = self.t
+        walk, limb = inp.get('walk', 0.0), inp.get('limb', 0.0)
+        idle, lean, arms = st['idle'], st['lean'], st['arms']
+        P = {c: [0.0, 0.0, 0.0] for c in self.CHANNELS}
+        y = 0.0
+        torso = [0.0, 0.0, 0.0]
+        s = self.state
+        sw = math.sin(walk * 2.2) * 40 * min(1.0, limb * 1.3)
+        cw = math.cos(walk * 2.2)
+        if s in ('idle', 'walk', 'sprint', 'sneak', 'land'):
+            # breathing, a little sway, the arms not quite rigid (scaled by the style's idle amount)
+            br = math.sin(t * 1.6)
+            P['body'][0] += 0.8 * br * idle
+            torso[1] += 0.006 * br * idle
+            P['armR'][2] += -(1.5 + 0.9 * math.sin(t * 1.6 + 0.4)) * idle
+            P['armL'][2] += (1.5 + 0.9 * math.sin(t * 1.6 + 0.4)) * idle
+            P['armR'][0] += 1.2 * math.sin(t * 1.1) * idle
+            P['armL'][0] += 1.2 * math.sin(t * 1.1 + 0.6) * idle
+            P['head'][0] += 1.5 * math.sin(t * 0.7) * idle
+            P['head'][1] += 3.5 * math.sin(t * 0.37) * idle
+            P['body'][2] += 0.9 * math.sin(t * 0.45) * idle
+            P['legA'][2] += 0.5 * math.sin(t * 0.45) * idle
+            P['legB'][2] += 0.5 * math.sin(t * 0.45) * idle
+        if s in ('walk', 'sprint', 'sneak', 'land', 'idle'):
+            k = st['walk'] * (1.25 if s == 'sprint' else (0.7 if s == 'sneak' else 1.0))
+            P['legA'][0] += sw * k
+            P['legB'][0] += -sw * k
+            P['armR'][0] += sw * arms * (1.35 if s == 'sprint' else 0.9)
+            P['armL'][0] += -sw * arms * (1.35 if s == 'sprint' else 0.9)
+            P['body'][1] += cw * 2.5 * lean * min(1.0, limb)
+            P['head'][1] -= cw * 1.5 * lean * min(1.0, limb)
+            torso[1] += abs(cw) * (0.022 if s == 'sprint' else 0.012) * min(1.0, limb) * lean
+            if s == 'sprint':
+                P['body'][0] += 9.0 * lean
+                P['head'][0] -= 7.0 * lean * st['head']        # (the head stays level as the body leans)
+                P['armR'][2] += -4.0 * arms
+                P['armL'][2] += 4.0 * arms
+                P['armR'][0] += 12.0 * arms * lean              # (elbows back: the arms pump higher)
+                P['armL'][0] += 12.0 * arms * lean
+            elif s == 'walk':
+                P['body'][0] += 2.0 * lean * min(1.0, limb)
+                P['head'][0] -= 1.5 * lean * min(1.0, limb)
+        if s == 'sneak':
+            P['body'][0] += 24.0
+            P['head'][0] -= 24.0
+            P['armR'][0] += 18.0
+            P['armL'][0] += 18.0
+            torso[1] -= 0.02
+            torso[2] -= 0.05
+        elif s == 'land':
+            u = clamp(self.land_t / 0.28, 0.0, 1.0)
+            env = (1 - u) ** 2 * self.land_amt * st['land']
+            P['body'][0] += 14.0 * env
+            P['head'][0] -= 6.0 * env
+            y -= 0.09 * env
+            P['legA'][0] += 10.0 * env
+            P['legB'][0] += 10.0 * env
+            P['armR'][0] += 14.0 * env
+            P['armL'][0] += 14.0 * env
+            P['armR'][2] += -8.0 * env
+            P['armL'][2] += 8.0 * env
+        elif s == 'jump':
+            j = st['jump']
+            P['legA'][0] += -12.0 * j
+            P['legB'][0] += 8.0 * j
+            P['armR'][2] += -10.0 * j
+            P['armL'][2] += 10.0 * j
+            P['armR'][0] += -20.0 * j
+            P['armL'][0] += -20.0 * j
+            P['body'][0] += 4.0 * j
+        elif s == 'rise':
+            j = st['jump']
+            P['armR'][0] += -28.0 * j
+            P['armL'][0] += -28.0 * j
+            P['armR'][2] += -14.0 * j
+            P['armL'][2] += 14.0 * j
+            P['legA'][0] += 14.0 * j
+            P['legB'][0] += -20.0 * j
+            P['body'][0] += 3.0 * j
+        elif s == 'apex':
+            j = st['jump']
+            P['armR'][0] += -12.0 * j
+            P['armL'][0] += -12.0 * j
+            P['armR'][2] += -18.0 * j
+            P['armL'][2] += 18.0 * j
+            P['legA'][0] += 9.0 * j
+            P['legB'][0] += -9.0 * j
+        elif s == 'fall':
+            f = clamp((-vy - 1.6) / 9.0, 0.0, 1.0)
+            j = st['jump']
+            P['armR'][2] += -(22.0 + 55.0 * f) * j
+            P['armL'][2] += (22.0 + 55.0 * f) * j
+            P['armR'][0] += -(8.0 + 22.0 * f) * j
+            P['armL'][0] += -(8.0 + 22.0 * f) * j
+            P['legA'][0] += 22.0 * f * j
+            P['legB'][0] += -10.0 * f * j
+            P['legA'][2] += 4.0 * f * j
+            P['legB'][2] += -4.0 * f * j
+            P['body'][0] += -6.0 * f * j * st['lean']
+            P['head'][0] += 10.0 * f * j
+            P['body'][2] += 2.5 * math.sin(self.air_t * 5.0) * f * j
+        elif s == 'swim':
+            self.swim_t += inp['dt'] * (5.0 if speed > 0.8 else 2.2)
+            w = self.swim_t
+            fwd = inp.get('fwd', speed)
+            side = inp.get('side', 0.0)
+            if speed > 0.8 and abs(fwd) >= abs(side) * 0.8:    # swimming along: a crawl, lying forward
+                P['body'][0] += 55.0
+                P['head'][0] -= 45.0
+                torso[2] -= 0.12
+                torso[1] -= 0.05
+                P['armR'][0] += math.sin(w) * 110.0 - 20.0
+                P['armL'][0] += math.sin(w + math.pi) * 110.0 - 20.0
+                P['armR'][2] += -12.0
+                P['armL'][2] += 12.0
+                P['legA'][0] += math.sin(w * 2.0) * 22.0
+                P['legB'][0] += -math.sin(w * 2.0) * 22.0
+            elif speed > 0.8:                                  # sideways: lean into it, one arm reaching
+                sgn = 1.0 if side > 0 else -1.0
+                P['body'][2] += -22.0 * sgn
+                P['head'][2] += 10.0 * sgn
+                P['armR'][2] += -40.0 - (30.0 if sgn > 0 else 0.0) + math.sin(w) * 15.0
+                P['armL'][2] += 40.0 + (30.0 if sgn < 0 else 0.0) - math.sin(w) * 15.0
+                P['legA'][0] += math.sin(w * 2.0) * 18.0
+                P['legB'][0] += -math.sin(w * 2.0) * 18.0
+            else:                                              # treading water, going up or down
+                P['body'][0] += 8.0
+                P['armR'][2] += -(38.0 + 14.0 * math.sin(w))
+                P['armL'][2] += 38.0 + 14.0 * math.sin(w)
+                P['legA'][0] += math.sin(w * 1.5) * 16.0
+                P['legB'][0] += -math.sin(w * 1.5) * 16.0
+                if vy > 0.6:                                   # pressing down to go up
+                    P['armR'][0] += -35.0
+                    P['armL'][0] += -35.0
+                    P['armR'][2] += 20.0
+                    P['armL'][2] += -20.0
+                elif vy < -0.6:                                # arms up, sinking
+                    P['armR'][2] += -45.0
+                    P['armL'][2] += 45.0
+                    P['head'][0] += 12.0
+        elif s == 'climb':
+            w = inp.get('y', 0.0) * 3.0
+            P['armR'][0] += -(70.0 + 25.0 * math.sin(w))
+            P['armL'][0] += -(70.0 + 25.0 * math.sin(w + math.pi))
+            P['legA'][0] += 22.0 + 20.0 * math.sin(w + math.pi)
+            P['legB'][0] += 22.0 + 20.0 * math.sin(w)
+            P['body'][0] += 5.0
+            torso[2] += 0.04
+        elif s == 'sit':
+            P['legA'] = [72.0, 10.0, 0.0]
+            P['legB'] = [72.0, -10.0, 0.0]
+            P['armL'][0] += 36.0
+            P['armR'][0] += 36.0
+        elif s == 'fly':
+            P['body'][0] += clamp(speed * 2.5, 0.0, 22.0) * lean
+            P['head'][0] -= clamp(speed * 2.0, 0.0, 18.0) * lean
+            P['armR'][2] += -8.0 - clamp(speed, 0, 6) * 3.0
+            P['armL'][2] += 8.0 + clamp(speed, 0, 6) * 3.0
+            P['armR'][0] += -10.0 * lean
+            P['armL'][0] += -10.0 * lean
+            P['legA'][0] += 4.0
+            P['legB'][0] += -4.0
+        # blocking: the sword across the body, or the shield up in front
+        if inp.get('blocking'):
+            if inp.get('block_kind') == 'shield':
+                P['armR'] = [62.0, 28.0, -12.0]
+                P['body'][1] += -8.0
+                P['head'][0] += 6.0
+                torso[2] -= 0.01
+            else:
+                P['armR'][0] = P['armR'][0] * 0.5 + 54.0
+                P['armR'][1] += BLOCK_ARM_IN
+        return P, y, torso
+
+    # -- the layers on top ---------------------------------------------------------------------
+    def attack_layer(self, inp, st, P):
+        f = clamp(inp.get('swing', 0.0), 0.0, 1.0)
+        if f <= 0.0:
+            return
+        wc, combo, crit, spr = swing_kind_unpack(inp.get('swing_kind', 0))
+        strike, wind = swing_envelope(f, wc)
+        k = st['attack'] * (1.15 if crit else 1.0) * (1.08 if spr else 1.0)
+        name = WEAPON_CLASSES[wc] if wc < len(WEAPON_CLASSES) else 'item'
+        ar = P['armR']
+        if name == 'sword':
+            if combo == 0:                                     # a diagonal slash
+                ar[0] += (92.0 * strike - 18.0 * wind) * k
+                ar[1] += -32.0 * strike * k
+                ar[2] += 18.0 * strike * k
+                P['body'][1] += -12.0 * strike * k
+            elif combo == 1:                                   # the return slash the other way
+                ar[0] += (86.0 * strike - 15.0 * wind) * k
+                ar[1] += 28.0 * strike * k
+                ar[2] += -20.0 * strike * k
+                P['body'][1] += 12.0 * strike * k
+            elif combo == 2:                                   # a thrust
+                ar[0] += (96.0 * strike - 20.0 * wind) * k
+                ar[1] += -6.0 * strike * k
+                P['body'][1] += -9.0 * strike * k
+                P['body'][0] += 5.0 * strike * k
+                P['torso'][2] -= 0.05 * strike * k
+            else:                                              # an overhead finisher
+                ar[0] += (128.0 * strike - 30.0 * wind) * k
+                ar[2] += 8.0 * strike * k
+                P['body'][0] += 8.0 * strike * k
+                P['head'][0] += 6.0 * strike * k
+        elif name == 'axe':
+            ar[0] += (-40.0 * wind + 132.0 * strike) * k
+            ar[2] += (14.0 * wind + 10.0 * strike) * k
+            ar[1] += -10.0 * strike * k
+            P['body'][0] += (-4.0 * wind + 11.0 * strike) * k
+            P['head'][0] += 7.0 * strike * k
+            P['body'][1] += -10.0 * strike * k
+        elif name == 'mace':
+            # the arm heaves up over the shoulder (through the front), then comes down with the body behind it
+            if f < 0.28:
+                arm = 200.0 * wind
+            elif f < 0.5:
+                arm = 200.0 - 130.0 * strike
+            elif f < 0.78:
+                arm = 70.0 - 260.0 * (strike - 1.0)
+            else:
+                arm = 70.0 * strike
+            ar[0] += arm * k
+            ar[2] += (18.0 * wind - 6.0 * strike) * k
+            P['body'][0] += (-10.0 * wind + 16.0 * strike) * k
+            P['head'][0] += 9.0 * strike * k
+            P['body'][1] += -8.0 * strike * k
+            P['torso'][1] -= 0.045 * strike * k
+            P['legA'][0] += 8.0 * strike * k
+            P['legB'][0] += -8.0 * strike * k
+        elif name == 'shield':
+            ar[0] += 48.0 * strike * k
+            ar[2] += 16.0 * strike * k
+            P['body'][1] += -10.0 * strike * k
+            P['torso'][2] -= 0.04 * strike * k
+        elif name == 'fist':
+            ar[0] += (78.0 * strike - 12.0 * wind) * k
+            ar[1] += -16.0 * strike * k
+            P['body'][1] += -7.0 * strike * k
+        else:                                                  # tools, items: the classic mining swing
+            ar[0] += (80.0 * strike - 10.0 * wind) * k
+            ar[1] += -22.0 * strike * k
+            P['body'][1] += -6.0 * strike * k
+        P['armL'][0] += -0.25 * (ar[0] - P['armL'][0]) * strike * 0.5
+        P['armL'][2] += 4.0 * strike * k
+        if crit:
+            P['torso'][1] -= 0.03 * strike
+            P['body'][0] += 4.0 * strike
+
+    def hit_layer(self, inp, st, P):
+        """A short flinch away from where a hit came from (the knock's direction relative to the facing)."""
+        seq = inp.get('hit_seq', 0)
+        if seq != self.hit_seq:
+            self.hit_seq = seq
+            self.hit_t = 0.4
+            self.hit_dir = inp.get('hit_dir')
+        if self.hit_t <= 0.0:
+            return
+        self.hit_t = max(0.0, self.hit_t - inp['dt'])
+        u = 1.0 - self.hit_t / 0.4
+        env = math.sin(u * math.pi) ** 0.7 * st['hit']
+        if self.hit_dir is None:
+            P['body'][0] += 5.0 * env
+            P['head'][0] += -6.0 * env
+            P['armR'][2] += -8.0 * env
+            P['armL'][2] += 8.0 * env
+            return
+        a = math.radians(self.hit_dir)
+        kf, kr = math.cos(a), math.sin(a)                      # pushed: forward, to the right
+        P['body'][0] += 12.0 * kf * env
+        P['head'][0] += -9.0 * kf * env
+        P['body'][2] += -14.0 * kr * env
+        P['head'][2] += -5.0 * kr * env
+        P['head'][1] += 10.0 * kr * env
+        if kr > 0:
+            P['armL'][2] += 28.0 * kr * env
+        else:
+            P['armR'][2] += 28.0 * kr * env
+        P['torso'][0] += 0.02 * kr * env
+        P['torso'][2] += 0.025 * kf * env
+
+    # -- a frame --------------------------------------------------------------------------------
+    def update(self, dt, inp):
+        dt = clamp(dt, 0.0005, 0.1)
+        inp['dt'] = dt
+        self.t += dt
+        st = ANIM_PARAMS.get(inp.get('style') or 'pvp', ANIM_PARAMS['pvp'])
+        # speed and vertical speed: given, or worked out from where the entity was last frame
+        x, y, z = inp.get('x', 0.0), inp.get('y', 0.0), inp.get('z', 0.0)
+        if self.last_pos is not None and inp.get('vx') is None:
+            dx, dz = x - self.last_pos[0], z - self.last_pos[2]
+            if abs(dx) < 8 and abs(dz) < 8:
+                sp = math.hypot(dx, dz) / dt
+                yr = math.radians(inp.get('yaw', 0.0))
+                fx, fz = math.sin(yr), -math.cos(yr)
+                inp['fwd'] = (dx * fx + dz * fz) / dt
+                inp['side'] = (dx * fz - dz * fx) / dt
+            else:
+                sp = self.speed
+            if abs(y - self.last_pos[1]) < 8:
+                self.est_vy += ((y - self.last_pos[1]) / dt - self.est_vy) * min(1.0, dt * 20.0)
+        else:
+            sp = math.hypot(inp.get('vx') or 0.0, inp.get('vz') or 0.0)
+            yr = math.radians(inp.get('yaw', 0.0))
+            fx, fz = math.sin(yr), -math.cos(yr)
+            inp['fwd'] = (inp.get('vx') or 0.0) * fx + (inp.get('vz') or 0.0) * fz
+            inp['side'] = (inp.get('vx') or 0.0) * fz - (inp.get('vz') or 0.0) * fx
+        self.last_pos = (x, y, z)
+        self.speed += (sp - self.speed) * min(1.0, dt * 12.0)
+        speed = self.speed if inp.get('vx') is None else sp
+        vy = inp['vy'] if inp.get('vy') is not None else self.est_vy
+        # in the air / landed
+        if inp['on_ground']:
+            if not self.was_ground:
+                self.land_t = 0.0
+                self.land_amt = clamp(0.2 + (-self.min_vy - 4.0) * 0.07, 0.2, 1.0)
+            else:
+                self.land_t += dt
+            self.air_t = 0.0
+            self.min_vy = 0.0
+        else:
+            self.air_t += dt
+            self.land_t = 9.0
+            self.min_vy = min(self.min_vy, vy)
+        self.was_ground = bool(inp['on_ground'])
+        new = self.pick_state(inp, vy, speed)
+        if new != self.state:
+            self.tau = self.transition_tau(self.state, new, st)
+            self.state = new
+            self.state_t = 0.0
+        else:
+            self.state_t += dt
+            self.tau += (st['blend'] - self.tau) * min(1.0, dt * 3.0)
+        P, ty, torso = self.locomotion(inp, st, vy, speed)
+        # ease the body toward the state's pose (never a snap: the blend time is the state change's)
+        k = 1.0 - math.exp(-dt / max(0.015, self.tau))
+        for c in self.CHANNELS:
+            cur, tgt = self.cur[c], P[c]
+            for i in range(3):
+                cur[i] += (tgt[i] - cur[i]) * k
+        self.cur_y += (ty - self.cur_y) * k
+        for i in range(3):
+            self.cur_torso[i] += (torso[i] - self.cur_torso[i]) * k
+        # then the layers that must answer at once: the swing, a hit, looking around
+        L = {c: list(self.cur[c]) for c in self.CHANNELS}
+        L['torso'] = list(self.cur_torso)
+        self.attack_layer(inp, st, L)
+        self.hit_layer(inp, st, L)
+        L['head'][0] += -clamp(inp.get('pitch', 0.0) + inp.get('hpit', 0.0), -60.0, 60.0) * st['head'] \
+            if self.state != 'swim' else -clamp(inp.get('pitch', 0.0), -60.0, 60.0) * 0.3
+        L['head'][1] += -inp.get('hyaw', 0.0)
+        pose = {c: tuple(L[c]) for c in self.CHANNELS}
+        pose['y'] = self.cur_y
+        pose['torso'] = tuple(L['torso'])
+        self.pose = pose
+        return pose
+
+
 def upload_list(old, pos, uv, col):
     """Vertex arrays (bytes) -> an OpenGL display list (returns 0 when empty)."""
     n = len(pos) // 12
@@ -15063,7 +16718,8 @@ def upload_list(old, pos, uv, col):
 
 
 DEFAULT_OPTS = dict(fabulous=False, pack='default', skin=0, rbook=False, rbcraft=False, render=8, fov=70, sens=0.15, smooth=True, fancy=True, clouds=True, vsync=True, volume=1.0,
-                    music=True, bob=True, gui=0, scale=0, name='', particles=True, bright=2.0, keys={}, invert=False)
+                    music=True, bob=True, gui=0, scale=0, name='', particles=True, bright=2.0, keys={}, invert=False,
+                    cskin='', ccape='', anim='pvp')
 
 # every action that can be rebound: (action, label on the Controls screen, default key or mouse button)
 KEY_ACTIONS = [
@@ -15142,6 +16798,21 @@ class Game:
         self.opts = dict(DEFAULT_OPTS)
         self.opts['name'] = 'Player%d' % random.randint(10, 99)
         self.load_options()
+        self.library = CosmeticLibrary()                   # your saved skins and capes (and peers' pictures)
+        self.library.load()
+        self.cos_tex = {}                                  # (kind, hash) -> GL texture
+        self.cos_tex_used = {}
+        self.player_cos = {}                               # LAN roster: name -> {'skin': ..., 'cape': ...}
+        self.my_cos = None
+        self.refresh_my_cos()
+        self.ui_hov, self.ui_scrolls, self.prev_cam = {}, {}, {}        # the dark menus' state
+        self.ui_lock, self.ui_anim, self.ui_alpha, self.ui_tip_text = False, None, 1.0, None
+        self.cos_tab, self.cos_back, self.cos_sel, self.cos_sel_cape = 'skins', 'title', None, None
+        self.cos_import, self.cos_err, self.cos_rename, self.cos_confirm = None, None, None, None
+        self.cos_pulse, self.cos_click_t = None, 0.0
+        self.cos_editor, self.edit_leave_t, self.ed_pick = None, 0.0, None
+        self.frame_dt = 0.016
+        self.cos_gc_t = 0.0
         if self.opts.get('pack', 'default') != self.atlas_pack:
             self.set_pack(self.opts['pack'])
         if self.opts.get('fabulous'):
@@ -15174,7 +16845,7 @@ class Game:
         self.grab_center = (0, 0)
         self.focus = None
         self.fields = {'name': self.opts['name'], 'seed': '', 'wname': 'New World', 'ip': '', 'add': '', 'chat': '',
-                       'csearch': ''}
+                       'csearch': '', 'rename': '', 'cosname': '', 'edname': '', 'hex': ''}
         self.scroll = 0
         self.running = True
         self.t = 0.0
@@ -15205,6 +16876,7 @@ class Game:
         self.root.bind('<FocusOut>', self.on_focus_out)
         self.frame.focus_set()
         self.on_resize()
+        self.install_drop_target()
         gc.freeze()
 
     # -- setup helpers ------------------------------------------------------------
@@ -15469,6 +17141,11 @@ class Game:
         self.bob_amt = 0.0
         self.swing = 0.0
         self.swinging = False
+        self.swing_kind = 0
+        self.swing_secs = 0.4
+        self.combo = 0
+        self.last_swing_t = -9.0
+        self.last_swing_wc = -1
         self.equip = 1.0
         self.hand_item = 0
         self.item_show = 0.0
@@ -15479,6 +17156,7 @@ class Game:
         self.mod_keys = set()
         self.requested = set()
         self.remote_players = {}
+        self.player_cos = {}
         self.target = None
         self.target_ent = None
         self.lan_note = ''
@@ -15622,6 +17300,113 @@ class Game:
             user32.SetCursorPos(cx, cy)
         return dx, dy
 
+    # -- files dropped on the window, and file dialogs -----------------------------------------
+    def install_drop_target(self):
+        """Let PNGs be dropped on the game (a skin from Explorer): a hook on the frame's own Win32 window that
+        catches the shell's drop message and passes everything else on to Tk."""
+        self.dropped_files = []                                   # [(path, x, y)] waiting for a menu to take them
+        self._wndproc = self._old_wndproc = None
+        if not IS_WIN:
+            return
+        try:
+            hwnd = self.frame.winfo_id()
+            self._drop_hwnd = hwnd
+            shell32.DragAcceptFiles(hwnd, True)
+            try:                                                  # (a game run as administrator still gets drops)
+                user32.ChangeWindowMessageFilterEx.argtypes = [wt.HWND, wt.UINT, wt.DWORD, ctypes.c_void_p]
+                for msg in (WM_DROPFILES, 0x0049, 0x004A):
+                    user32.ChangeWindowMessageFilterEx(hwnd, msg, 1, None)
+            except Exception:
+                pass
+            self._wndproc = WNDPROC(self._drop_wndproc)           # (kept on self: the callback must outlive this call)
+            self._old_wndproc = _SetWindowLongPtr(hwnd, GWLP_WNDPROC, ctypes.cast(self._wndproc, ctypes.c_void_p).value)
+            if not self._old_wndproc:
+                self._wndproc = None
+        except Exception:
+            traceback.print_exc()
+            self._wndproc = self._old_wndproc = None
+
+    def _drop_wndproc(self, hwnd, msg, wparam, lparam):
+        if msg == WM_DROPFILES:
+            try:
+                n = shell32.DragQueryFileW(wparam, 0xFFFFFFFF, None, 0)
+                pt = POINT()
+                shell32.DragQueryPoint(wparam, ctypes.byref(pt))
+                for i in range(min(int(n), 8)):
+                    ln = shell32.DragQueryFileW(wparam, i, None, 0)
+                    buf = ctypes.create_unicode_buffer(int(ln) + 2)
+                    shell32.DragQueryFileW(wparam, i, buf, int(ln) + 1)
+                    if buf.value:
+                        self.dropped_files.append((buf.value, int(pt.x), int(pt.y)))
+            except Exception:
+                traceback.print_exc()
+            try:
+                shell32.DragFinish(wparam)
+            except Exception:
+                pass
+            return 0
+        try:
+            return user32.CallWindowProcW(self._old_wndproc, hwnd, msg, wparam, lparam)
+        except Exception:
+            return 0
+
+    def remove_drop_target(self):
+        if IS_WIN and self._old_wndproc:
+            try:
+                _SetWindowLongPtr(self._drop_hwnd, GWLP_WNDPROC, self._old_wndproc)
+            except Exception:
+                pass
+            self._old_wndproc = None
+
+    def poll_drops(self):
+        """A PNG dropped anywhere but a skins menu: open the skins menu for it (or say where it goes)."""
+        if not self.dropped_files:
+            return
+        if self.scene in COS_SCREENS or (self.scene == 'game' and self.overlay in COS_SCREENS):
+            return                                                # (that screen takes them)
+        if self.scene == 'game' and self.overlay in (None, 'pause'):
+            self.open_cos_screen('skins')
+        elif self.scene in ('title', 'worlds', 'create', 'mp', 'options', 'controls', 'packs'):
+            self.open_cos_screen('skins')
+        else:
+            self.dropped_files = []
+            self.notify('Drop skins on the Skins screen (title screen, or the pause menu)', 5)
+
+    def ask_open_png(self, title='Open a PNG picture'):
+        """The system's open-file dialog (menus only: it blocks the game until it closes).  Path or ''."""
+        path = ''
+        try:
+            from tkinter import filedialog
+            path = filedialog.askopenfilename(parent=self.root, title=title,
+                                              filetypes=[('PNG pictures', '*.png'), ('All files', '*.*')])
+        except Exception:
+            traceback.print_exc()
+        self.after_dialog()
+        return path if isinstance(path, str) else ''
+
+    def ask_save_png(self, name, title='Save as PNG'):
+        path = ''
+        try:
+            from tkinter import filedialog
+            path = filedialog.asksaveasfilename(parent=self.root, title=title, defaultextension='.png',
+                                                initialfile=safe_name(name) + '.png', filetypes=[('PNG pictures', '*.png')])
+        except Exception:
+            traceback.print_exc()
+        self.after_dialog()
+        return path if isinstance(path, str) else ''
+
+    def after_dialog(self):
+        """A modal dialog ate the key and mouse events: start clean."""
+        self.keys.clear()
+        self.clicks, self.typed, self.wheel = [], [], 0
+        self.lmb = self.rmb = self.mmb = False
+        self.mbuttons.clear()
+        self.dropped_files = []
+        try:
+            self.frame.focus_set()
+        except Exception:
+            pass
+
     # -- main loop --------------------------------------------------------------------
     def run(self):
         last = time.perf_counter()
@@ -15666,6 +17451,7 @@ class Game:
         self.save_options()
         self.audio.close()
         self.workers.close()
+        self.remove_drop_target()
         try:
             user32.ClipCursor(None)
             self.root.destroy()
@@ -15673,15 +17459,20 @@ class Game:
             pass
 
     def frame_step(self, dt):
+        self.frame_dt = dt
         if self.msg_t > 0:
             self.msg_t -= dt
         self.poll_assets()
         self.audio.update(dt, self.scene == 'game')
         self.net_update(dt)
+        self.poll_drops()
+        if self.t - self.cos_gc_t > 60.0:
+            self.cos_gc_t = self.t
+            self.cos_release_textures()
         self.animate_textures(dt)
         if self.scene == 'game':
             self.update_game(dt)
-        elif self.scene in ('title', 'worlds', 'create', 'mp', 'options', 'connecting', 'controls'):
+        elif self.scene in ('title', 'worlds', 'create', 'mp', 'options', 'connecting', 'controls', 'skins', 'skinedit'):
             self.update_title_world(dt)
         elif self.scene == 'loading':
             self.update_loading(dt)
@@ -15816,6 +17607,7 @@ class Game:
         self.cur_dim = self.dim
         self.use_dim(self.dim)
         self.saved_players = d.get('players', {}) if d else {}
+        self.load_cos_saved(d.get('cos') if d else None)
         self.pvp = bool(d.get('pvp', True)) if d else True
         if d and d.get('spawn'):
             sx, sy, sz = d['spawn']
@@ -15955,6 +17747,8 @@ class Game:
             return False
         self.pistons_settle()
         players = dict(self.saved_players)
+        cos_saved = {n: {'skin': list(e['skin']) if e.get('skin') else None, 'cape': e.get('cape')}
+                     for n, e in self.player_cos.items() if n != (self.player.name if self.player else None)}
         for rp in self.remote_players.values():
             if getattr(rp, 'pdata', None):
                 players[rp.name] = rp.pdata
@@ -15974,7 +17768,7 @@ class Game:
         d['maps'] = self.save_maps()
         d.update({'version': SAVE_VERSION, 'name': self.world_name, 'seed': self.world.seed, 'time': self.time,
                   'mode': self.mode, 'player': self.player_data(self.player), 'spawn': [sp[0] - 0.5, sp[1], sp[2] - 0.5],
-                  'players': players})
+                  'players': players, 'cos': cos_saved})
         meta = {'name': self.world_name, 'mode': self.mode, 'seed': self.world.seed, 'version': SAVE_VERSION,
                 'wtype': getattr(self, 'wtype', 'default'), 'hardcore': getattr(self, 'hardcore', False),
                 'difficulty': getattr(self, 'difficulty', 2)}
@@ -16346,6 +18140,7 @@ class Game:
             rp.z += (rp.tz - rp.z) * k
             rp.yaw, rp.pitch = rp.tyaw, rp.tpitch
             rp.hurt_t = max(0.0, rp.hurt_t - dt)
+            self.advance_remote_swing(rp, dt)
             moved = math.hypot(rp.x - ox, rp.z - oz)
             rp.limb += (min(1.0, moved / max(dt, 1e-4) / 4.3) - rp.limb) * min(1, dt * 10)
             rp.walk += moved * 1.6
@@ -16381,7 +18176,7 @@ class Game:
                     self.close_ui()
                 elif self.overlay in ('pause',):
                     self.overlay = None
-                elif self.overlay in ('options', 'skins', 'packs'):
+                elif self.overlay in ('options', 'packs'):
                     if self.overlay != 'options':
                         self.save_options()
                     self.overlay = 'pause'
@@ -16733,11 +18528,12 @@ class Game:
             self.hand_item = held
         self.item_show = max(0.0, self.item_show - dt)
         if self.swinging:
-            self.swing += dt * 2.5
+            self.swing += dt / max(0.1, self.swing_secs)
             if self.swing >= 1.0:
                 self.swing = 0.0
                 self.swinging = False
         p.swing = self.swing if self.swinging else 0.0
+        p.swing_kind = self.swing_kind
         self.update_target()
         if play:
             self.update_actions(dt)
@@ -16848,6 +18644,7 @@ class Game:
                 self.last_hit_by = (by, self.t)
             p.hurt_t = 0.5
             self.hurt_tilt = 1.0
+            self.player_hit(kb)
             self.sound('hurt')
             if kb:
                 self.pvp_knock(kb)
@@ -16855,7 +18652,18 @@ class Game:
         if kind in ('arrow', 'explosion') and by != 'player' and not pvp:
             dmg = self.diff_damage(dmg)
         if self.__dict__.get('blocking') and kind in ('hit', 'arrow', 'explosion') and dmg > 0:
-            dmg = (1 + dmg) * 0.5                           # blocking with a sword: about half (the knock still lands)
+            held = p.held()
+            if self.block_kind(held[0] if held else 0) == 'shield':
+                dmg = dmg * 0.25                            # a shield: a quarter of the blow, half the shove
+                if kb:
+                    kb = (kb[0] * 0.5, kb[1] * 0.5)
+                if held and not p.creative:
+                    held[2] += 1
+                    if wear(held) >= ITEMS[held[0]]['dur']:
+                        p.inv[p.sel] = None
+                        self.sound('tool_break')
+            else:
+                dmg = (1 + dmg) * 0.5                       # blocking with a sword: about half (the knock still lands)
         if kind in ('fire', 'lava') and EF_FIRE_RES in p.effects:
             return
         rs = p.effects.get(EF_RESIST)
@@ -16899,12 +18707,14 @@ class Game:
             if dmg <= 0:
                 p.hurt_t = 0.5
                 self.hurt_tilt = 1.0
+                self.player_hit(kb)
                 self.sound('hurt')
                 return
         p.hp -= dmg
         p.hurt_t = 0.5
         p.exhaust += 0.3
         self.hurt_tilt = 1.0
+        self.player_hit(kb)
         self.sound('hurt')
         if kb and pvp:
             self.pvp_knock(kb)
@@ -17125,7 +18935,21 @@ class Game:
             self.notify('Your %s broke!' % ITEMS[s[0]]['name'], 2)
 
     def start_swing(self):
+        """Begin the arm swing: which weapon's swing it is, the combo step (hits in quick succession chain
+        through four different swings), a critical or sprint hit."""
         if not self.swinging or self.swing > 0.5:
+            p = self.player
+            held = p.held()
+            wc = weapon_class(held[0] if held else 0)
+            if self.t - self.last_swing_t < 0.8 and wc == self.last_swing_wc:
+                self.combo = (self.combo + 1) % 4
+            else:
+                self.combo = 0
+            self.last_swing_t, self.last_swing_wc = self.t, wc
+            crit = p.vy < -1 and not p.on_ground
+            self.swing_kind = swing_kind_pack(wc, self.combo, crit, p.sprint)
+            st = ANIM_PARAMS.get(self.opts.get('anim') or 'pvp', ANIM_PARAMS['pvp'])
+            self.swing_secs = SWING_SECS[WEAPON_CLASSES[wc]] * st['swing_t']
             self.swing = 0.0
             self.swinging = True
 
@@ -17145,7 +18969,7 @@ class Game:
         item = s[0] if s else 0
         # --- eating and bows are "hold right click" actions
         food = item >= 256 and (ITEMS[item].get('food') or ITEMS[item].get('drink'))
-        self.blocking = bool(hold_r and item >= 256 and ITEMS[item].get('tool') == 'sword' and self.overlay is None and
+        self.blocking = bool(hold_r and self.block_kind(item) and self.overlay is None and
                              not (self.target and self.usable_block()) and p.vehicle is None)
         if item == I_BOW and hold_r and (p.creative or p.count_item(I_ARROW)):
             self.bow_t += dt
@@ -17178,7 +19002,7 @@ class Game:
         # --- left button
         if hold_l and self.target_ent and (pressed_l or self.attack_t <= 0) and not self.blocking:
             self.attack(self.target_ent)
-            self.attack_t = 0.3
+            self.attack_t = ATTACK_COOLDOWN[WEAPON_CLASSES[weapon_class(item)]]
             self.mining = None
         elif hold_l and self.target and pressed_l and self.world.get(
                 self.target[0] + self.target[3], self.target[1] + self.target[4], self.target[2] + self.target[5]) == B_FIRE:
@@ -20247,6 +22071,11 @@ class Game:
         crit = p.vy < -1 and not p.on_ground
         if crit:
             dmg = int(dmg * 1.5) + 1
+        if s and s[0] == I_MACE and p.fall > 1.5 and not p.on_ground:   # a mace smash: the fall goes into the hit
+            dmg += int(min(15.0, (p.fall - 1.5) * 3.0))
+            p.fall = 0.0                                     # (and the landing does not hurt you)
+            self.spawn_particles('bigsmoke', e.x, e.y + 0.2, e.z, 8)
+            self.sound('hit', e.x, e.y, e.z, 1.0)
         # enchantments (the 1.0 formulas)
         lv = ench_lvl(s, E_SHARP)
         if lv:
@@ -20296,6 +22125,7 @@ class Game:
         self.use_tool(1 if s and s[0] >= 256 and ITEMS[s[0]].get('tool') == 'sword' else 2)
         if crit:
             self.spawn_particles('crit', e.x, e.y + e.h * 0.7, e.z, 10)
+        self.hit_feedback(weapon_class(s[0] if s else 0), crit, e)
 
     def damage_mob(self, e, dmg, kb, attacker=None):
         if e.kind == 'fireball':
@@ -28415,6 +30245,501 @@ class Game:
         cache[kind] = out
         return out
 
+    # ==========================================================================
+    #  PLAYERS: custom (PNG) skins on their own textures, and the pose-driven player model.  Every
+    #  player - you in third person, LAN players, the previews in the menus - is drawn by draw_player.
+    # ==========================================================================
+    def refresh_my_cos(self):
+        """What you have equipped, from the options: {'skin': (hash, model, layers) | None, 'cape': hash | None}.
+        An equipped picture that is gone from the library is quietly unequipped."""
+        o, lib = self.opts, self.library
+        skin = cape = None
+        h = o.get('cskin') or ''
+        e = lib.find('skin', h) if is_cosmetic_hash(h) else None
+        if e is not None and lib.has('skin', h):
+            skin = (h, e['model'], e['layers'])
+        else:
+            o['cskin'] = ''
+        h = o.get('ccape') or ''
+        e = lib.find('cape', h) if is_cosmetic_hash(h) else None
+        if e is not None and lib.has('cape', h):
+            cape = h
+        else:
+            o['ccape'] = ''
+        self.my_cos = {'skin': skin, 'cape': cape}
+        return self.my_cos
+
+    def player_cosmetics(self, e):
+        """The skin and cape a player entity wears: yours from the options, a preview's from the entity, a LAN
+        player's from the roster (by name, so it survives the entity being made again)."""
+        if e is self.player:
+            return self.my_cos
+        c = e.__dict__.get('cos')
+        if c is not None:
+            return c
+        n = e.__dict__.get('name')
+        return self.player_cos.get(n) if n else None
+
+    def cos_size(self, kind):
+        return (SKIN_W, SKIN_H) if kind == 'skin' else (CAPE_W, CAPE_H)
+
+    def cos_texture(self, kind, h):
+        """The GL texture of a skin / cape we have the picture of (uploaded once; 0 when we don't have it)."""
+        key = (kind, h)
+        tex = self.cos_tex.get(key)
+        if tex:
+            self.cos_tex_used[key] = self.t
+            return tex
+        rgba = self.library.raster(kind, h)
+        if rgba is None:
+            return 0
+        w, hh = self.cos_size(kind)
+        tex = make_texture(bytes(rgba), w, hh)
+        self.cos_tex[key] = tex
+        self.cos_tex_used[key] = self.t
+        return tex
+
+    def cos_texture_set(self, kind, h, rgba):
+        """Put pixels straight into a texture (the editor's live preview): made if new, else updated in place."""
+        key = (kind, h)
+        w, hh = self.cos_size(kind)
+        tex = self.cos_tex.get(key)
+        if not tex:
+            tex = self.cos_tex[key] = make_texture(bytes(rgba), w, hh)
+        else:
+            glBindTexture(GL_TEXTURE_2D, tex)
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, hh, GL_RGBA, GL_UNSIGNED_BYTE, bytes(rgba))
+        self.cos_tex_used[key] = self.t
+        return tex
+
+    def cos_release_textures(self, all_=False):
+        """Free the textures of pictures nobody has drawn for ten minutes (run now and then)."""
+        for key in list(self.cos_tex):
+            if not is_cosmetic_hash(key[1]) and not all_:
+                continue                                  # (the editor's and the import's scratch textures stay)
+            if all_ or self.t - self.cos_tex_used.get(key, 0.0) > 600.0:
+                tid = self.cos_tex.pop(key)
+                self.cos_tex_used.pop(key, None)
+                try:
+                    glDeleteTextures(1, ctypes.byref(ctypes.c_uint(tid)))
+                except Exception:
+                    pass
+
+    # the player model's parts: (tag, armour part, skin box, pivot, box, second-layer bit, how far the second
+    # layer stands off).  Boxes are biped_parts' (1 unit = 16 px), so armour and the held item fit as before.
+    _aw = 0.125
+    SKIN_PART_GEO = [
+        ('head', 'head', 'head', (0, 1.5, 0), (-0.25, 0.0, -0.25, 0.25, 0.5, 0.25), LAYER_HAT, 0.03125),
+        ('body', 'body', 'body', (0, 0.75, 0), (-0.25, 0.0, -0.125, 0.25, 0.75, 0.125), LAYER_JACKET, 0.015625),
+        ('armR', 'arm', 'arm_r', (0.375, 1.375, 0), (-_aw, -0.7, -_aw, _aw, 0.05, _aw), LAYER_SLEEVE_R, 0.015625),
+        ('armL', 'arm', 'arm_l', (-0.375, 1.375, 0), (-_aw, -0.7, -_aw, _aw, 0.05, _aw), LAYER_SLEEVE_L, 0.015625),
+        ('legB', 'leg', 'leg_r', (0.125, 0.75, 0), (-_aw, -0.75, -_aw, _aw, 0.0, _aw), LAYER_PANTS_R, 0.015625),
+        ('legA', 'leg', 'leg_l', (-0.125, 0.75, 0), (-_aw, -0.75, -_aw, _aw, 0.0, _aw), LAYER_PANTS_L, 0.015625),
+    ]
+
+    def skin_part_lists(self, model):
+        """Display lists for a custom skin's model (one set per arm style, built once, texture-independent):
+        [(tag, armour part, pivot, base list, second-layer list, layer bit)]."""
+        cache = self.__dict__.setdefault('_skin_parts', {})
+        if model in cache:
+            return cache[model]
+        boxes = SKIN_BOXES_SLIM if model == 'slim' else SKIN_BOXES
+        out = []
+        for tag, armor, part, pivot, box, bit, grow in self.SKIN_PART_GEO:
+            if model == 'slim' and tag == 'armR':
+                box = (box[0], box[1], box[2], 0.0625, box[4], box[5])      # 3 px wide: the outer pixel is gone
+            elif model == 'slim' and tag == 'armL':
+                box = (-0.0625, box[1], box[2], box[3], box[4], box[5])
+            base, over = boxes[part]
+            lists = []
+            for region, g in ((base, 0.0), (over, grow)):
+                lst = glGenLists(1)
+                glNewList(lst, GL_COMPILE)
+                glBegin(GL_QUADS)
+                self.tex_box_uv(box[0] - g, box[1] - g, box[2] - g, box[3] + g, box[4] + g, box[5] + g,
+                                skin_face_uvs(*region))
+                glEnd()
+                glEndList()
+                lists.append(lst)
+            out.append((tag, armor, pivot, lists[0], lists[1], bit))
+        cache[model] = out
+        return out
+
+    def preset_part_lists(self, kind):
+        """The atlas-textured preset model in the same shape as skin_part_lists."""
+        out = []
+        for name, pivot, lst, anim in self.model_lists(kind):
+            out.append((anim or 'body', name, pivot, lst, 0, 0))
+        return out
+
+    def mc_box_uv(self, x0, y0, z0, x1, y1, z1, region, tw=SKIN_W, th=SKIN_H):
+        """A skin box in the real game's own model space (pixels, y down the texture): the way its first-person
+        arm is drawn.  region = (u, v, w, h, d).  Inside glBegin(GL_QUADS)."""
+        u, v, w, h, d = region
+        k = 0.0625
+        X0, Y0, Z0, X1, Y1, Z1 = x0 * k, y0 * k, z0 * k, x1 * k, y1 * k, z1 * k
+        fx, fy = 1.0 / tw, 1.0 / th
+        quads = (((1, 0, 0), ((X1, Y0, Z1), (X1, Y0, Z0), (X1, Y1, Z0), (X1, Y1, Z1)), (u + d + w, v + d, u + 2 * d + w, v + d + h)),
+                 ((-1, 0, 0), ((X0, Y0, Z0), (X0, Y0, Z1), (X0, Y1, Z1), (X0, Y1, Z0)), (u, v + d, u + d, v + d + h)),
+                 ((0, -1, 0), ((X1, Y0, Z1), (X0, Y0, Z1), (X0, Y0, Z0), (X1, Y0, Z0)), (u + d, v, u + d + w, v + d)),
+                 ((0, 1, 0), ((X1, Y1, Z0), (X0, Y1, Z0), (X0, Y1, Z1), (X1, Y1, Z1)), (u + d + w, v + d, u + d + 2 * w, v)),
+                 ((0, 0, -1), ((X1, Y0, Z0), (X0, Y0, Z0), (X0, Y1, Z0), (X1, Y1, Z0)), (u + d, v + d, u + d + w, v + d + h)),
+                 ((0, 0, 1), ((X0, Y0, Z1), (X1, Y0, Z1), (X1, Y1, Z1), (X0, Y1, Z1)), (u + 2 * d + w, v + d, u + 2 * d + 2 * w, v + d + h)))
+        for n, pts, (u1_, v1_, u2_, v2_) in quads:
+            glNormal3f(*n)
+            for (px, py, pz), (uu, vv) in zip(pts, ((u2_, v1_), (u1_, v1_), (u1_, v2_), (u2_, v2_))):
+                glTexCoord2f(uu * fx, vv * fy)
+                glVertex3f(px, py, pz)
+
+    def preview_entity(self, key):
+        """A stand-in player for the menus' 3D previews (kept, so it is not a new entity every frame)."""
+        d = self.__dict__.setdefault('_preview_ents', {})
+        e = d.get(key)
+        if e is None:
+            e = d[key] = Entity(0, 0, 0)
+            e.pitch, e.swing, e.armor, e.held_item, e.name, e.skin = 0.0, 0.0, [None] * 4, 0, '', 0
+            e.cos = {'skin': None, 'cape': None}
+            e.on_ground = True
+        return e
+
+    # ==========================================================================
+    #  ANIMATION HOOKS: what each player is doing -> AnimState -> the pose draw_player uses
+    # ==========================================================================
+    def block_kind(self, item):
+        """'sword' or 'shield' when that is what blocks with the item, else None."""
+        if item and item >= 256 and item in ITEMS:
+            t = ITEMS[item].get('tool')
+            if t in ('sword', 'shield'):
+                return t
+        return None
+
+    def anim_style_of(self, e):
+        if e is self.player:
+            st = self.opts.get('anim') or 'pvp'
+        else:
+            st = e.__dict__.get('anim_style') or 'pvp'
+        return st if st in ANIM_PARAMS else 'pvp'
+
+    def anim_inputs(self, e):
+        local = e is self.player
+        d = e.__dict__
+        if local:
+            held = e.held()
+            held = held[0] if held else 0
+            vx, vz, vy = e.vx, e.vz, (0.0 if e.on_ground else e.vy)
+            swing = self.swing if self.swinging else 0.0
+            swing_kind = self.swing_kind
+        else:
+            held = d.get('held_item', 0)
+            vx = vz = None                                        # (worked out from where they were last frame)
+            vy = d.get('anim_vy')
+            swing = d.get('swing', 0.0)
+            swing_kind = d.get('swing_kind', 0)
+        return dict(x=e.x, y=e.y, z=e.z, yaw=e.yaw, pitch=e.pitch, vx=vx, vz=vz, vy=vy,
+                    on_ground=bool(getattr(e, 'on_ground', True)), sprint=bool(d.get('sprint', False)),
+                    sneak=bool(d.get('sneak', False)), in_water=bool(d.get('in_water', False)),
+                    on_ladder=bool(d.get('on_ladder', False)), flying=bool(d.get('flying', False)),
+                    sitting=d.get('vehicle') is not None or bool(d.get('riding', False)),
+                    blocking=self.is_blocking(e), block_kind=self.block_kind(held), swing=swing, swing_kind=swing_kind,
+                    hit_seq=d.get('hit_seq', 0), hit_dir=d.get('hit_dir'), walk=e.walk, limb=e.limb,
+                    hpit=d.get('hpit', 0.0), hyaw=d.get('hyaw', 0.0), style=self.anim_style_of(e))
+
+    def player_pose(self, e):
+        """The pose of a player this frame (worked out once per frame, however often they are drawn)."""
+        a = e.__dict__.get('anim')
+        if a is None:
+            a = e.anim = AnimState(seed=(getattr(e, 'id', 0) % 23) * 0.7)
+        if a.frame != self.fps_n or a.frame_t != self.t:
+            a.frame, a.frame_t = self.fps_n, self.t
+            a.update(self.frame_dt, self.anim_inputs(e))
+        return a.pose
+
+    def player_hit(self, kb):
+        """Remember which way a hit shoved you (the flinch; LAN players see the same)."""
+        p = self.player
+        p.hit_seq = p.__dict__.get('hit_seq', 0) + 1
+        if kb and (kb[0] or kb[1]):
+            yr = math.radians(p.yaw)
+            fx, fz = math.sin(yr), -math.cos(yr)
+            rx, rz = math.cos(yr), math.sin(yr)
+            p.hit_dir = math.degrees(math.atan2(kb[0] * rx + kb[1] * rz, kb[0] * fx + kb[1] * fz)) % 360.0
+        else:
+            p.hit_dir = None
+
+    def hit_feedback(self, wc, crit, e):
+        """What you feel when a hit lands: a nudge of the camera, more for heavy weapons and crits."""
+        st = ANIM_PARAMS.get(self.opts.get('anim') or 'pvp', ANIM_PARAMS['pvp'])
+        name = WEAPON_CLASSES[wc] if wc < len(WEAPON_CLASSES) else 'item'
+        amt = {'mace': 0.42, 'axe': 0.22, 'sword': 0.1, 'shield': 0.14}.get(name, 0.06) + (0.12 if crit else 0.0)
+        self.shake = max(self.shake, amt * st['shake'])
+        if name == 'mace':
+            self.spawn_particles('bigsmoke', e.x, e.y + 0.15, e.z, 5)
+            self.spawn_particles('crit', e.x, e.y + e.h * 0.5, e.z, 8)
+            self.sound('gravel', e.x, e.y, e.z, 0.7)
+
+    def fp_swing_curves(self, f):
+        """The first-person swing's four terms (push in, arc, lift, twist) for the weapon and combo step."""
+        s1 = math.sin(f * math.pi)
+        s2 = math.sin(math.sqrt(f) * math.pi)
+        s3 = math.sin(math.sqrt(f) * math.pi * 2)
+        sf = math.sin(f * f * math.pi)
+        if f <= 0.0:
+            return s1, s2, s3, sf
+        wc, combo, crit, spr = swing_kind_unpack(self.swing_kind)
+        name = WEAPON_CLASSES[wc] if wc < len(WEAPON_CLASSES) else 'item'
+        amp = ANIM_PARAMS.get(self.opts.get('anim') or 'pvp', ANIM_PARAMS['pvp'])['attack']
+        if name == 'axe':
+            g = f ** 1.4
+            s1, s2 = math.sin(g * math.pi) * 1.3, math.sin(math.sqrt(g) * math.pi) * 1.25
+            s3, sf = math.sin(math.sqrt(g) * math.pi * 2) * 1.2, math.sin(g * g * math.pi) * 0.8
+        elif name == 'mace':
+            wind = max(0.0, 0.28 - f) / 0.28
+            s2 = s2 * 1.4 - wind * 0.6
+            s3 = s3 * 1.5
+            s1 = s1 * 1.3
+        elif name == 'sword':
+            if combo == 1:
+                s3, sf = -s3, -sf
+            elif combo == 2:
+                s1, s2 = s1 * 1.5, s2 * 0.6
+            elif combo == 3:
+                s3 = s3 * 1.35
+        elif name == 'shield':
+            s1, s2, s3 = s1 * 1.2, s2 * 0.5, s3 * 0.4
+        if crit:
+            s1 *= 1.15
+        return s1 * amp, s2 * amp, s3 * amp, sf * amp
+
+    def advance_remote_swing(self, rp, dt):
+        """Between packets a LAN player's swing keeps going at its weapon's pace (20 steps a second would look
+        like a flip-book)."""
+        if rp.swing > 0.0:
+            wc = swing_kind_unpack(rp.__dict__.get('swing_kind', 0))[0]
+            secs = SWING_SECS.get(WEAPON_CLASSES[wc] if wc < len(WEAPON_CLASSES) else 'item', 0.4)
+            rp.swing += dt / secs
+            if rp.swing >= 1.0:
+                rp.swing = 0.0
+        if rp.hurt_t > 0.0 and not rp.__dict__.get('was_hurt'):
+            rp.hit_seq = rp.__dict__.get('hit_seq', 0) + 1                # a hit landed: flinch
+        rp.was_hurt = rp.hurt_t > 0.0
+
+    # ==========================================================================
+    #  ANIMATION STYLE TAB
+    # ==========================================================================
+    def anim_demo(self, fake, dt):
+        """Walk a preview player through everything: standing, walking, sprinting, a jump, four sword hits, a
+        hit taken, a sneak.  Returns the caption."""
+        cyc = self.t % 16.0
+        fake.on_ground, fake.sprint, fake.sneak = True, False, False
+        fake.anim_vy = 0.0
+        fake.held_item = tool_id('sword', 2)
+        fake.swing_kind = 0
+        speed = 0.0
+        cap = 'Idle'
+        if cyc < 2.5:
+            pass
+        elif cyc < 5.0:
+            speed, cap = 4.3, 'Walking'
+        elif cyc < 7.5:
+            speed, fake.sprint, cap = 5.6, True, 'Sprinting'
+        elif cyc < 8.9:
+            u = (cyc - 7.5) / 1.4
+            fake.y = max(0.0, 2.2 * math.sin(u * math.pi))
+            fake.on_ground = fake.y <= 0.0 and u > 0.5
+            fake.anim_vy = 2.2 * math.pi / 1.4 * math.cos(u * math.pi) if not fake.on_ground else 0.0
+            speed, cap = 3.0, 'Jumping, falling, landing'
+        elif cyc < 9.6:
+            cap = 'Landing'
+        elif cyc < 12.0:
+            u = (cyc - 9.6) / 2.4
+            k = int(u * 4)
+            f = (u * 4) % 1.0
+            fake.swing = min(1.0, f / 0.75)
+            fake.swing_kind = swing_kind_pack(1, k, k == 3, False)
+            cap = 'Sword combo (hit %d of 4)' % (k + 1)
+        elif cyc < 13.5:
+            if not fake.__dict__.get('demo_hit') or cyc < 12.1:
+                if cyc < 12.1 and not fake.__dict__.get('demo_hit'):
+                    fake.hit_seq = fake.__dict__.get('hit_seq', 0) + 1
+                    fake.hit_dir = 90.0
+                    fake.demo_hit = True
+            cap = 'Hit from the left'
+        else:
+            fake.demo_hit = False
+            fake.sneak, cap = True, 'Sneaking'
+            speed = 1.3
+        if cyc >= 12.0 or cyc < 9.6:
+            fake.swing = 0.0
+        if not (7.5 <= cyc < 8.9):
+            fake.y = 0.0
+        fake.yaw = 0.0
+        fake.z -= speed * dt
+        fake.walk += speed * dt * 1.6
+        fake.limb += (min(1.0, speed / 4.3) - fake.limb) * min(1, dt * 10)
+        return cap
+
+    def draw_anims_tab(self, top):
+        g, W, H = self.gs, self.W, self.H
+        self.dropped_files = []
+        bottom = H - 8 * g
+        lx, lw = 10 * g, 150 * g
+        ph = max(90 * g, min(170 * g, bottom - top - 40 * g))
+        fake = self.preview_entity('anims')
+        fake.cos = dict(self.my_cos)
+        fake.skin = int(self.opts.get('skin', 0)) % len(SKINS)
+        fake.anim_style = self.opts.get('anim') or 'pvp'
+        cap = self.anim_demo(fake, self.frame_dt)
+        cam = self.prev_cam.get('anims')
+        if cam is None:
+            cam = self.prev_cam['anims'] = {'yaw': 35.0, 'pitch': 10.0, 'zoom': 1.0, 'auto': False, 'drag': None, 'idle': -99.0}
+        self.ui_preview('anims', lx, top, lw, ph, fake.skin, fake.cos, walk=None, pose=self.player_pose(fake))
+        self.ui_view_buttons('anims', lx + 2 * g, top + ph + 3 * g)
+        self.ui_text(cap, lx + lw / 2.0, top + ph + 20 * g, self.UI_ACCENT, align='c')
+        rx = lx + lw + 8 * g
+        rw = W - 10 * g - rx
+        self.ui_text('ANIMATION STYLE', rx, top, self.UI_DIM)
+        self.ui_text('How you move, swing and react - other players see it too', rx + 70 * g, top, (0.4, 0.4, 0.45, 1.0))
+        y = top + 14 * g
+        ch = 26 * g
+        cur = self.opts.get('anim') or 'pvp'
+        for sid, label, desc in ANIM_STYLES:
+            on = sid == cur
+            hov = self.ui_hovered(rx, y, rw, ch)
+            a = self.ui_hover('anim:' + sid, hov)
+            self.ui_round_rect(rx, y, rw, ch, 3 * g, self.ui_mix((0.13, 0.19, 0.28, 1.0) if on else self.UI_CARD,
+                                                                 (0.17, 0.24, 0.35, 1.0) if on else self.UI_CARD2, a))
+            self.ui_outline(rx, y, rw, ch, 3 * g, (0.55, 0.76, 1.0, 0.6) if on else self.ui_mix(self.UI_LINE, self.UI_LINE2, a))
+            self.ui_icon('run' if on else 'dot', rx + 5 * g, y + ch / 2.0 - 5 * g, 10 * g, self.UI_ACCENT if on else self.UI_DIM)
+            self.ui_text(label, rx + 19 * g, y + 4 * g, self.UI_ACCENT if on else self.UI_TEXT)
+            self.ui_text(self.ui_text_fit(desc, rw - 24 * g), rx + 19 * g, y + 14 * g, self.UI_DIM)
+            if on:
+                self.ui_icon('check', rx + rw - 14 * g, y + ch / 2.0 - 4 * g, 8 * g, self.UI_ACCENT)
+            if hov and self.ui_clicked(rx, y, rw, ch) and not on:
+                self.opts['anim'] = sid
+                self.cos_changed()
+            y += ch + 3 * g
+        self.ui_text('Tip: swings differ by weapon - fists, swords, axes, maces, tools and shields.', rx, y + 2 * g, self.UI_DIM)
+
+    def draw_player(self, e, light, pose=None):
+        """A player: the custom skin's texture (or a preset's atlas tiles), posed, with armour, the held item in
+        the right hand, and the cape.  The atlas is bound again when it returns."""
+        cos = self.player_cosmetics(e)
+        skin = cos.get('skin') if cos else None
+        tex = self.cos_texture('skin', skin[0]) if skin else 0
+        if tex:
+            parts, layers = self.skin_part_lists(skin[1]), skin[2]
+        else:
+            parts, layers = self.preset_part_lists(self.skin_kind(e)), 0
+        if pose is None:
+            pose = self.player_pose(e)
+        armor = getattr(e, 'armor', None)
+        if not (armor and any(armor)):
+            armor = None
+        hide = cos.get('hide') if cos else None
+        glColor4f(light[0], light[1], light[2], 1)
+        glPushMatrix()
+        glTranslatef(0, pose.get('y', 0.0), 0)
+        for part in parts:
+            if part[0] in ('legA', 'legB'):
+                self.draw_player_part(e, light, part, pose, tex, layers, armor, hide)
+        glPushMatrix()
+        glTranslatef(0, 0.75, 0)                                   # the torso turns about the hips
+        bx, by, bz = pose.get('body', (0.0, 0.0, 0.0))
+        tx, ty, tz = pose.get('torso', (0.0, 0.0, 0.0))
+        if bz:
+            glRotatef(bz, 0, 0, 1)
+        if by:
+            glRotatef(by, 0, 1, 0)
+        if bx:
+            glRotatef(bx, 1, 0, 0)
+        glTranslatef(tx, ty - 0.75, tz)
+        for part in parts:
+            if part[0] not in ('legA', 'legB'):
+                self.draw_player_part(e, light, part, pose, tex, layers, armor, hide)
+        if cos and cos.get('cape'):
+            self.draw_cape(e, light, cos['cape'], pose)
+        glPopMatrix()
+        glPopMatrix()
+        glBindTexture(GL_TEXTURE_2D, self.tex)
+
+    def draw_player_part(self, e, light, part, pose, tex, layers, armor, hide=None):
+        tag, aname, (px, py, pz), l0, l1, bit = part
+        rx, ry, rz = pose.get(tag, (0.0, 0.0, 0.0))
+        glPushMatrix()
+        glTranslatef(px, py, pz)
+        if rz:
+            glRotatef(rz, 0, 0, 1)
+        if ry:
+            glRotatef(ry, 0, 1, 0)
+        if rx:
+            glRotatef(rx, 1, 0, 0)
+        if tex:
+            glBindTexture(GL_TEXTURE_2D, tex)
+        if not (hide and (tag, 0) in hide):
+            glCallList(l0)
+        if l1 and (layers & bit):
+            glCallList(l1)
+        if armor or tag == 'armR':
+            glBindTexture(GL_TEXTURE_2D, self.tex)
+        if armor:
+            for slot, box in self.ARMOR_BOXES.get(aname, ()):
+                st = armor[slot]
+                if st and st[0] in ITEMS:
+                    al = self.armor_list(aname, slot, ITEMS[st[0]]['mat'], box)
+                    glCallList(al)
+                    if len(st) > 2 and ench_get(st):
+                        self.glint_pass(al)
+                        glColor4f(light[0], light[1], light[2], 1)
+        if tag == 'armR':
+            self.draw_held_in_hand(e, light)
+        glPopMatrix()
+
+    def draw_held_in_hand(self, e, light):
+        """The held item, drawn inside the right arm's transform (so it follows whatever the arm does)."""
+        item = e.held_item if hasattr(e, 'held_item') else ((self.player.held() or [0])[0])
+        if not item:
+            return
+        glPushMatrix()
+        glTranslatef(0, -0.65, -0.15)
+        if self.is_blocking(e) and item >= 256 and ITEMS[item].get('tool') == 'sword':
+            for a_, ax in BLOCK_SWORD_3P:                          # (the blade held across the body)
+                glRotatef(a_, *ax)
+        self.entity_lights(False)
+        if item < 256 and B_SHAPE[item] == S_CUBE:
+            self.block_model(item, light, 0.3)
+        else:
+            glRotatef(90, 0, 1, 0)
+            glRotatef(-35, 0, 0, 1)
+            self.sprite3d(item_tile(item), light, 0.6)
+        self.entity_lights(True)
+        glPopMatrix()
+
+    def draw_first_person_arm(self):
+        """Your own right arm in first person (the custom skin's, with its sleeve, or the preset tiles)."""
+        skin = self.my_cos.get('skin') if self.my_cos else None
+        tex = self.cos_texture('skin', skin[0]) if skin else 0
+        glBegin(GL_QUADS)
+        if tex:
+            glEnd()
+            glBindTexture(GL_TEXTURE_2D, tex)
+            boxes = SKIN_BOXES_SLIM if skin[1] == 'slim' else SKIN_BOXES
+            base, over = boxes['arm_r']
+            x0 = -2 if skin[1] == 'slim' else -3
+            glBegin(GL_QUADS)
+            self.mc_box_uv(x0, -2, -2, 1, 10, 2, base)
+            if skin[2] & LAYER_SLEEVE_R:
+                self.mc_box_uv(x0 - 0.25, -2.25, -2.25, 1.25, 10.25, 2.25, over)
+            glEnd()
+            glBindTexture(GL_TEXTURE_2D, self.tex)
+            return
+        sk_ = self.skin_kind(self.player)
+        if sk_ != 'player':
+            self.px_box(-3, -2, -2, 1, 10, 2, 'skin%s_arm' % sk_[8:])   # (sleeve and hand: the skin's arm)
+        else:
+            self.px_box(-3, -2, -2, 1, 2, 2, 'steve_shirt')           # short sleeve
+            self.px_box(-3, 2, -2, 1, 10, 2, 'steve_skin')
+        glEnd()
+
     def skin_kind(self, e):
         """The model to draw a player with: their skin (a LAN player's own; yours - or your preview's - from the
         options)."""
@@ -28426,6 +30751,8 @@ class Game:
 
     def draw_model(self, e, light, kind=None):
         arms_out = kind == 'zombie_arms_enderman'
+        if (kind or e.kind) == 'player' and not arms_out:
+            return self.draw_player(e, light)
         if arms_out:
             kind = 'enderman'
         kind = kind or e.kind
@@ -28778,9 +31105,7 @@ class Game:
                     self.draw_charge_aura(e)
                 if k == 'pig' and getattr(e, 'saddle', False):
                     self.draw_saddle(light)
-                if k == 'player':
-                    self.draw_held_3p(e, light)
-                elif k in ('pigman', 'witherskel'):
+                if k in ('pigman', 'witherskel'):
                     self.draw_held_3p(e, light)
             glPopMatrix()
             if getattr(e, 'fire_t', 0) > 0 and k in MOB_CLASSES or (k == 'player' and getattr(e, 'fire_t', 0) > 0):
@@ -29618,11 +31943,7 @@ class Game:
             glTranslatef(math.sin(ph) * a * 0.05, -abs(math.cos(ph) * a) * 0.08, 0)
             glRotatef(math.sin(ph) * a * 2.4, 0, 0, 1)
             glRotatef(abs(math.cos(ph - 0.2) * a) * 3.0, 1, 0, 0)
-        f = self.swing if self.swinging else 0.0
-        s1 = math.sin(f * math.pi)
-        s2 = math.sin(math.sqrt(f) * math.pi)
-        s3 = math.sin(math.sqrt(f) * math.pi * 2)
-        sf = math.sin(f * f * math.pi)
+        s1, s2, s3, sf = self.fp_swing_curves(self.swing if self.swinging else 0.0)
         item = self.hand_item
         eq = self.equip
         glColor4f(light[0], light[1], light[2], 1)
@@ -29640,14 +31961,7 @@ class Game:
             glTranslatef(5.6, 0, 0)
             glTranslatef(-5 * 0.0625, 2 * 0.0625, 0)                # shoulder pivot
             glRotatef(math.degrees(0.1), 0, 0, 1)
-            glBegin(GL_QUADS)
-            sk_ = self.skin_kind(self.player)
-            if sk_ != 'player':
-                self.px_box(-3, -2, -2, 1, 10, 2, 'skin%s_arm' % sk_[8:])   # (sleeve and hand: the skin's arm)
-            else:
-                self.px_box(-3, -2, -2, 1, 2, 2, 'steve_shirt')           # short sleeve
-                self.px_box(-3, 2, -2, 1, 10, 2, 'steve_skin')
-            glEnd()
+            self.draw_first_person_arm()
         elif item == I_MAP:
             self.draw_held_map(light, eq)
         else:
@@ -29673,6 +31987,11 @@ class Game:
                 glRotatef(30, 0, 1, 0)
                 glRotatef(-80, 1, 0, 0)
                 glRotatef(60, 0, 1, 0)
+            elif self.__dict__.get('blocking') and item == I_SHIELD:
+                glTranslatef(-0.9, 0.35, 0.3)                         # the shield up, square in front of you
+                glRotatef(-25, 0, 1, 0)
+                glRotatef(-10, 1, 0, 0)
+                glScalef(1.6, 1.6, 1.6)
             if item < 256 and B_SHAPE[item] in MODEL_SHAPES:
                 self.entity_lights(False)
                 self.block_model(item, light, 1.0)
@@ -29776,6 +32095,8 @@ class Game:
                 self.draw_controls(back='options')
             elif self.overlay == 'skins':
                 self.draw_skins(back='pause')
+            elif self.overlay == 'skinedit':
+                self.draw_skinedit()
             elif self.overlay == 'packs':
                 self.draw_packs(back='pause')
             elif self.overlay == 'credits':
@@ -29786,7 +32107,7 @@ class Game:
                 self.text('Sleeping...', self.W / 2, self.H / 2 - 20 * self.gs, 2, align='c')
                 if self.button('Leave Bed', (self.W - 150 * self.gs) / 2, self.H - 50 * self.gs, 150 * self.gs):
                     self.wake_up()
-        elif self.scene in ('title', 'worlds', 'create', 'mp', 'options', 'connecting', 'controls', 'skins', 'packs'):
+        elif self.scene in ('title', 'worlds', 'create', 'mp', 'options', 'connecting', 'controls', 'skins', 'packs', 'skinedit'):
             tw = self.title_world
             if tw and sum(1 for c in tw.chunks.values() if any(s.has for s in c.secs)) > 20:
                 self.title_cam_yaw = (getattr(self, 'title_cam_yaw', 0) + dt * 2.5) % 360
@@ -29805,7 +32126,8 @@ class Game:
                 self.dirt_bg()
             {'title': self.draw_title, 'worlds': self.draw_worlds, 'create': self.draw_create,
              'mp': self.draw_mp, 'options': self.draw_options, 'connecting': self.draw_connecting,
-             'controls': self.draw_controls, 'skins': self.draw_skins, 'packs': self.draw_packs}[self.scene]()
+             'controls': self.draw_controls, 'skins': self.draw_skins, 'packs': self.draw_packs,
+             'skinedit': self.draw_skinedit}[self.scene]()
         elif self.scene == 'loading':
             glClearColor(0, 0, 0, 1)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -31222,92 +33544,1540 @@ class Game:
         dx = (self.mx - (x + w / 2)) / float(self.W) * 180
         dy = (self.my - (y + h * 0.25)) / float(self.H) * 90
         glRotatef(180 + clamp(dx, -60, 60), 0, 1, 0)
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, 0.4)
         self.entity_lights(True)
-        fake = Entity(0, 0, 0)
+        fake = self.preview_entity('inv')
         fake.pitch = clamp(dy, -40, 40)
         fake.swing = 0.0
         fake.armor = p.armor if p else [None] * 4
         fake.held_item = (p.held()[0] if p.held() else 0) if p else 0
-        self.draw_model(fake, (1, 1, 1), 'player')
+        fake.cos = self.my_cos
+        fake.skin = None
+        self.draw_player(fake, (1, 1, 1))
         self.entity_lights(False)
+        glDisable(GL_ALPHA_TEST)
         glDisable(GL_DEPTH_TEST)
         glViewport(0, 0, self.W, self.H)
         self.set_ortho()
         self.ui_begin()
 
     # -- skins and texture packs --------------------------------------------------------------
-    def draw_skin_preview(self, x, y, w, h, skin, yaw):
-        """A player in a skin, walking on the spot and turning (the skins screen)."""
+    def draw_skin_preview(self, x, y, w, h, skin, yaw, cos=None, pitch=10.0, zoom=1.0, walk=True, key='skins', pose=None):
+        """A player in a skin (a preset index, or cos = {'skin': (hash, model, layers), 'cape': hash}) walking on the
+        spot and turning; zoom > 1 looks closer."""
         glViewport(int(x), int(self.H - y - h), int(w), int(h))
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         a = w / float(h)
-        glOrtho(-1.2 * a, 1.2 * a, -0.25, 2.15, -10, 10)
+        z = 1.0 / max(0.2, zoom)
+        glOrtho(-1.2 * a * z, 1.2 * a * z, 0.95 - 1.2 * z, 0.95 + 1.2 * z, -10, 10)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         glClear(GL_DEPTH_BUFFER_BIT)
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_TEXTURE_2D)
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, 0.4)
         glBindTexture(GL_TEXTURE_2D, self.tex)
-        glRotatef(10, 1, 0, 0)
+        glTranslatef(0, 0.95, 0)
+        glRotatef(pitch, 1, 0, 0)
         glRotatef(180 + yaw, 0, 1, 0)
+        glTranslatef(0, -0.95, 0)
         self.entity_lights(True)
-        fake = Entity(0, 0, 0)
-        fake.pitch, fake.swing, fake.armor, fake.held_item, fake.skin = 0.0, 0.0, [None] * 4, 0, skin
-        fake.walk, fake.limb = self.t * 2.2, 0.55
-        self.draw_model(fake, (1, 1, 1), 'player')
+        fake = self.preview_entity(key)
+        fake.pitch, fake.swing, fake.armor, fake.held_item = 0.0, 0.0, [None] * 4, 0
+        fake.skin = skin
+        fake.cos = cos if cos is not None else {'skin': None, 'cape': None}
+        if walk is True:
+            fake.walk, fake.limb = self.t * 2.2, 0.55
+        elif walk is False:
+            fake.walk, fake.limb = 0.0, 0.0
+        self.draw_player(fake, (1, 1, 1), pose)
         self.entity_lights(False)
+        glDisable(GL_ALPHA_TEST)
         glDisable(GL_DEPTH_TEST)
         glViewport(0, 0, self.W, self.H)
         self.set_ortho()
         self.ui_begin()
 
-    def draw_skins(self, back=None):
-        """Choose how you look (LAN players see it too)."""
-        g, W, H = self.gs, self.W, self.H
-        if self.scene != 'game':
-            self.menu_keys()
+    # ==========================================================================
+    #  THE DARK MENU KIT  (the skins, capes, editor and animation screens)
+    # ==========================================================================
+    UI_BG = (0.05, 0.05, 0.06, 0.97)
+    UI_CARD = (0.105, 0.105, 0.125, 1.0)
+    UI_CARD2 = (0.16, 0.16, 0.19, 1.0)
+    UI_LINE = (1.0, 1.0, 1.0, 0.08)
+    UI_LINE2 = (1.0, 1.0, 1.0, 0.2)
+    UI_TEXT = (0.93, 0.93, 0.95, 1.0)
+    UI_DIM = (0.58, 0.58, 0.64, 1.0)
+    UI_ACCENT = (0.55, 0.76, 1.0, 1.0)
+    UI_ACCENT_BG = (0.14, 0.2, 0.3, 1.0)
+    UI_DANGER = (1.0, 0.45, 0.45, 1.0)
+    UI_OK = (0.5, 0.9, 0.6, 1.0)
+    COS_TABS = [('skins', 'Skins', 'person'), ('capes', 'Capes', 'cape'), ('anims', 'Animation', 'run')]
+
+    def ui_col(self, c, mul=1.0):
+        a = self.__dict__.get('ui_alpha', 1.0) * mul
+        return (c[0], c[1], c[2], c[3] * a)
+
+    def ui_mix(self, a, b, t):
+        return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t)
+
+    def ui_hovered(self, x, y, w, h):
+        return not self.ui_lock and self.hovered(x, y, w, h)
+
+    def ui_clicked(self, x, y, w, h, button=1):
+        return not self.ui_lock and self.clicked(x, y, w, h, button)
+
+    def ui_hover(self, key, hov, speed=14.0):
+        """A 0..1 'how lit up' value per control that eases in and out (subtle, not a snap)."""
+        d = self.ui_hov
+        v = d.get(key, 0.0)
+        v += ((1.0 if hov else 0.0) - v) * min(1.0, self.frame_dt * speed)
+        if v < 0.002 and not hov:
+            d.pop(key, None)
+            return 0.0
+        d[key] = v
+        return v
+
+    def ui_round_rect(self, x, y, w, h, r, col):
+        """A filled rectangle with rounded corners."""
+        col = self.ui_col(col)
+        r = max(0.0, min(r, w / 2.0, h / 2.0))
+        glDisable(GL_TEXTURE_2D)
+        glColor4f(*col)
+        glBegin(GL_QUADS)
+        glVertex2f(x + r, y)
+        glVertex2f(x + w - r, y)
+        glVertex2f(x + w - r, y + h)
+        glVertex2f(x + r, y + h)
+        if r > 0:
+            glVertex2f(x, y + r)
+            glVertex2f(x + r, y + r)
+            glVertex2f(x + r, y + h - r)
+            glVertex2f(x, y + h - r)
+            glVertex2f(x + w - r, y + r)
+            glVertex2f(x + w, y + r)
+            glVertex2f(x + w, y + h - r)
+            glVertex2f(x + w - r, y + h - r)
+        glEnd()
+        if r >= 1.5:
+            for cx, cy, a0 in ((x + r, y + r, math.pi), (x + w - r, y + r, 1.5 * math.pi),
+                               (x + w - r, y + h - r, 0.0), (x + r, y + h - r, 0.5 * math.pi)):
+                glBegin(GL_TRIANGLE_FAN)
+                glVertex2f(cx, cy)
+                for k in range(7):
+                    a = a0 + k * (math.pi / 12.0)
+                    glVertex2f(cx + math.cos(a) * r, cy + math.sin(a) * r)
+                glEnd()
+
+    def ui_outline(self, x, y, w, h, r, col, width=1.0):
+        """A thin line round a rounded rectangle."""
+        col = self.ui_col(col)
+        r = max(0.0, min(r, w / 2.0, h / 2.0))
+        x, y, w, h = x + 0.5, y + 0.5, w - 1, h - 1
+        glDisable(GL_TEXTURE_2D)
+        glColor4f(*col)
+        glLineWidth(width)
+        glBegin(GL_LINE_LOOP)
+        for cx, cy, a0 in ((x + r, y + r, math.pi), (x + w - r, y + r, 1.5 * math.pi),
+                           (x + w - r, y + h - r, 0.0), (x + r, y + h - r, 0.5 * math.pi)):
+            for k in range(7):
+                a = a0 + k * (math.pi / 12.0)
+                glVertex2f(cx + math.cos(a) * r, cy + math.sin(a) * r)
+        glEnd()
+        glLineWidth(1.0)
+
+    def ui_panel(self, x, y, w, h, r=None, col=None, line=None):
+        g = self.gs
+        r = 4 * g if r is None else r
+        self.ui_round_rect(x, y, w, h, r, col or self.UI_CARD)
+        if line is not False:
+            self.ui_outline(x, y, w, h, r, line or self.UI_LINE)
+
+    def ui_text(self, s, x, y, col=None, align='l', size=1, shadow=False):
+        return self.text(s, x, y, size, self.ui_col(col or self.UI_TEXT), align, shadow)
+
+    def ui_text_fit(self, s, maxw, scale=None):
+        """The text cut (with '..') to fit a width."""
+        sc = scale or self.gs
+        if self.font.width(s, sc) <= maxw:
+            return s
+        while len(s) > 1 and self.font.width(s + '..', sc) > maxw:
+            s = s[:-1]
+        return s + '..'
+
+    def ui_icon(self, name, x, y, s, col=None):
+        self.tile_rect('ui_' + name, x, y, s, s, self.ui_col(col or self.UI_TEXT))
+
+    def ui_button(self, key, label, x, y, w, h=None, icon=None, primary=False, enabled=True, danger=False,
+                  tip=None, active=False, dim=False):
+        """A dark button: rounded, a faint border, a soft glow when hovered; True on click."""
+        g = self.gs
+        h = h or 16 * g
+        hov = enabled and self.ui_hovered(x, y, w, h)
+        a = self.ui_hover(key, hov)
+        if primary:
+            fill = self.ui_mix(self.UI_ACCENT_BG, (0.22, 0.32, 0.48, 1.0), a)
+            line = self.ui_mix((0.55, 0.76, 1.0, 0.35), (0.55, 0.76, 1.0, 0.7), a)
+            tc = (1.0, 1.0, 1.0, 1.0)
+        elif active:
+            fill = self.ui_mix((0.13, 0.17, 0.24, 1.0), (0.17, 0.22, 0.31, 1.0), a)
+            line = (0.55, 0.76, 1.0, 0.45)
+            tc = self.UI_ACCENT
         else:
-            self.rect(0, 0, W, H, (0, 0, 0, 0.55))
-        self.text('Skins', W / 2, 10 * g, 1, align='c')
-        o, n = self.opts, len(SKINS)
-        cur = int(o.get('skin', 0)) % n
-        pw, ph = 104 * g, 130 * g
-        px, py = W / 2 - pw / 2, 26 * g
-        self.rect(px, py, pw, ph, (0, 0, 0, 0.45))
-        self.draw_skin_preview(px, py, pw, ph, cur, self.t * 45.0)
-        self.text(SKINS[cur][1], W / 2, py + ph + 5 * g, 1, (1, 1, 0.63, 1), align='c')
-        pick = None
-        if self.button('<', px - 30 * g, py + ph / 2 - 10 * g, 24 * g):
-            pick = (cur - 1) % n
-        if self.button('>', px + pw + 6 * g, py + ph / 2 - 10 * g, 24 * g):
-            pick = (cur + 1) % n
-        fs = 22 * g
-        fx0 = W / 2 - (n * (fs + 3 * g) - 3 * g) / 2
-        fy = py + ph + 18 * g
-        tip = None
-        for k in range(n):
-            x = fx0 + k * (fs + 3 * g)
-            self.rect(x, fy, fs, fs, (1, 1, 1, 0.9) if k == cur else (0, 0, 0, 0.6))
-            self.tile_rect('steve_face' if k == 0 else 'skin%d_face' % k, x + 2 * g, fy + 2 * g, fs - 4 * g, fs - 4 * g)
-            if self.hovered(x, fy, fs, fs):
-                tip = SKINS[k][1]
-                if self.clicked(x, fy, fs, fs):
-                    pick = k
-        if pick is not None and pick != cur:
-            o['skin'] = pick
+            fill = self.ui_mix(self.UI_CARD, self.UI_CARD2, a)
+            line = self.ui_mix(self.UI_LINE, self.UI_LINE2, a)
+            tc = self.UI_DANGER if danger else (self.UI_DIM if dim else self.UI_TEXT)
+        if not enabled:
+            fill, tc = (0.08, 0.08, 0.09, 1.0), (0.4, 0.4, 0.44, 1.0)
+        self.ui_round_rect(x, y, w, h, 3 * g, fill)
+        self.ui_outline(x, y, w, h, 3 * g, line)
+        tw = self.font.width(label, g) if label else 0
+        iw = 9 * g if icon else 0
+        cx = x + w / 2.0 - (tw + iw + (2 * g if icon and label else 0)) / 2.0
+        if icon:
+            self.ui_icon(icon, cx, y + h / 2.0 - 4.5 * g, 9 * g, tc)
+            cx += iw + (2 * g if label else 0)
+        if label:
+            self.ui_text(label, cx, y + h / 2.0 - 4.5 * g, tc)
+        if tip and hov:
+            self.ui_tip(tip)
+        if enabled and self.ui_clicked(x, y, w, h):
             self.sound('click')
-            self.save_options()
-        if tip:
-            tw = self.font.width(tip, g) + 8 * g
-            self.rect(self.mx + 10 * g, self.my - 13 * g, tw, 13 * g, (0.08, 0.0, 0.13, 0.94))
-            self.text(tip, self.mx + 14 * g, self.my - 12 * g, 1)
-        if self.button('Done', W / 2 - 75 * g, H - 30 * g, 150 * g):
-            self.save_options()
-            if back:
-                self.overlay = back
+            return True
+        return False
+
+    def ui_icon_button(self, key, icon, x, y, s, tip=None, active=False, enabled=True, danger=False):
+        return self.ui_button(key, '', x, y, s, s, icon=icon, active=active, enabled=enabled, tip=tip, danger=danger)
+
+    def ui_chip(self, key, label, x, y, w, on, tip=None, h=None):
+        """A small toggle; True when clicked."""
+        g = self.gs
+        h = h or 12 * g
+        hov = self.ui_hovered(x, y, w, h)
+        a = self.ui_hover(key, hov)
+        if on:
+            fill = self.ui_mix((0.13, 0.19, 0.28, 1.0), (0.17, 0.24, 0.35, 1.0), a)
+            self.ui_round_rect(x, y, w, h, 2 * g, fill)
+            self.ui_outline(x, y, w, h, 2 * g, (0.55, 0.76, 1.0, 0.5))
+            tc = self.UI_ACCENT
+        else:
+            self.ui_round_rect(x, y, w, h, 2 * g, self.ui_mix(self.UI_CARD, self.UI_CARD2, a))
+            self.ui_outline(x, y, w, h, 2 * g, self.ui_mix(self.UI_LINE, self.UI_LINE2, a))
+            tc = self.UI_DIM
+        self.ui_text(label, x + w / 2.0, y + h / 2.0 - 4.5 * g, tc, align='c')
+        if tip and hov:
+            self.ui_tip(tip)
+        if self.ui_clicked(x, y, w, h):
+            self.sound('click')
+            return True
+        return False
+
+    def ui_field(self, key, x, y, w, h=None, placeholder='', allowed=None):
+        """A dark text box (the same self.fields / self.focus plumbing as field())."""
+        g = self.gs
+        h = h or 14 * g
+        foc = self.focus == key
+        self.ui_round_rect(x, y, w, h, 2 * g, (0.03, 0.03, 0.04, 1.0))
+        self.ui_outline(x, y, w, h, 2 * g, (0.55, 0.76, 1.0, 0.6) if foc else self.UI_LINE2)
+        v = self.fields.get(key, '')
+        ty = y + h / 2.0 - 4.5 * g
+        if v or foc:
+            caret = '_' if foc and int(self.t * 2.5) % 2 == 0 else ''
+            self.ui_text(self.ui_text_fit(v + caret, w - 6 * g), x + 3 * g, ty)
+        else:
+            self.ui_text(placeholder, x + 3 * g, ty, self.UI_DIM)
+        if self.ui_clicked(x, y, w, h):
+            self.focus = key
+        self.__dict__.setdefault('field_rules', {})[key] = allowed
+
+    def ui_tip(self, text):
+        self.ui_tip_text = text
+
+    def ui_draw_tip(self):
+        t = self.ui_tip_text
+        self.ui_tip_text = None
+        if not t:
+            return
+        g = self.gs
+        tw = self.font.width(t, g) + 8 * g
+        x = min(self.mx + 10 * g, self.W - tw - 2 * g)
+        y = self.my - 16 * g if self.my > 20 * g else self.my + 14 * g
+        self.ui_round_rect(x, y, tw, 13 * g, 2 * g, (0.02, 0.02, 0.03, 0.96))
+        self.ui_outline(x, y, tw, 13 * g, 2 * g, self.UI_LINE2)
+        self.ui_text(t, x + 4 * g, y + 2 * g)
+
+    def ui_clip(self, x, y, w, h):
+        glEnable(GL_SCISSOR_TEST)
+        glScissor(int(max(0, x)), int(max(0, self.H - y - h)), int(max(0, w)), int(max(0, h)))
+
+    def ui_unclip(self):
+        glDisable(GL_SCISSOR_TEST)
+
+    def ui_scroll(self, key, x, y, w, h, content_h):
+        """Wheel scrolling over an area; returns the pixel offset.  Draws a slim bar when it scrolls."""
+        g = self.gs
+        d = self.ui_scrolls
+        v = d.get(key, 0.0)
+        mx = max(0.0, content_h - h)
+        if self.wheel and self.ui_hovered(x, y, w, h):
+            v -= self.wheel * 24 * g
+            self.wheel = 0
+        v = clamp(v, 0.0, mx)
+        d[key] = v
+        if mx > 0:
+            bh = max(10 * g, h * h / float(content_h))
+            by = y + (h - bh) * (v / mx)
+            self.ui_round_rect(x + w - 2 * g, y, 2 * g, h, g, (1, 1, 1, 0.05))
+            self.ui_round_rect(x + w - 2 * g, by, 2 * g, bh, g, (1, 1, 1, 0.22))
+        return v
+
+    def ui_print_allowed(self):
+        return ''.join(chr(c) for c in range(32, 127))
+
+    # -- the screens' open / close ------------------------------------------------------------
+    def open_cos_screen(self, tab='skins', screen='skins'):
+        """Open one of the dark screens (fades in).  tab: which tab of the skins screen."""
+        if tab in [t[0] for t in self.COS_TABS]:
+            self.cos_tab = tab
+        self.ui_anim = {'t': 0.0, 'closing': False, 'to': None}
+        self.ui_lock = True
+        self.focus = None
+        self.ui_tip_text = None
+        if self.scene == 'game':
+            self.cos_back = 'pause'
+            self.overlay = screen
+        else:
+            self.cos_back = 'title'
+            self.scene = screen
+        if self.cos_sel is None:
+            self.cos_sel = self.equipped_sel()
+        if not self.library.loaded:
+            self.library.load()
+
+    def close_cos_screen(self, to=None):
+        """Fade the screen out, then go back (or on to another of these screens)."""
+        self.save_options()
+        self.focus = None
+        an = self.ui_anim or {'t': 1.0}
+        self.ui_anim = {'t': an.get('t', 1.0), 'closing': True, 'to': to}
+        self.ui_lock = True
+
+    def cos_go(self, to):
+        if to in COS_SCREENS:
+            self.open_cos_screen(self.cos_tab, to)
+            return
+        self.cos_import = None
+        self.cos_rename = None
+        if self.scene == 'game':
+            self.overlay = self.cos_back if self.cos_back in ('pause',) else 'pause'
+        else:
+            self.scene = 'title'
+
+    def ui_screen_begin(self):
+        """First thing in a dark screen: the backdrop and the fade.  Returns the eased 0..1 openness, or None
+        when the screen has just finished closing (draw nothing more)."""
+        an = self.ui_anim
+        if an is None:
+            an = self.ui_anim = {'t': 1.0, 'closing': False, 'to': None}
+            self.ui_lock = False
+        dt = self.frame_dt
+        if an['closing']:
+            an['t'] -= dt / 0.12
+            if an['t'] <= 0.0:
+                self.ui_anim = None
+                self.ui_lock = False
+                self.ui_alpha = 1.0
+                self.cos_go(an['to'])
+                return None
+        elif an['t'] < 1.0:
+            an['t'] = min(1.0, an['t'] + dt / 0.18)
+            if an['t'] >= 1.0:
+                self.ui_lock = False
+        t = clamp(an['t'], 0.0, 1.0)
+        e = 1 - (1 - t) ** 3
+        self.ui_alpha = 1.0
+        self.rect(0, 0, self.W, self.H, (0.02, 0.02, 0.03, (0.78 if self.scene == 'game' else 0.6) * e))
+        self.ui_alpha = e
+        self.ui_tip_text = None
+        return e
+
+    def ui_screen_end(self):
+        self.ui_draw_tip()
+        self.ui_alpha = 1.0
+
+    def ui_header(self, title, sub, oy):
+        """Title at the left, the tabs in the middle, Done at the right.  Returns the y under it."""
+        g, W = self.gs, self.W
+        y = 8 * g + oy
+        self.ui_text(title, 12 * g, y + 2 * g)
+        if sub:
+            self.ui_text(sub, 12 * g + self.font.width(title, g) + 5 * g, y + 2 * g, self.UI_DIM)
+        tabs = self.COS_TABS
+        tw = 58 * g
+        x = W / 2.0 - (len(tabs) * (tw + 2 * g) - 2 * g) / 2.0
+        for name, label, icon in tabs:
+            if self.ui_button('tab:' + name, label, x, y - g, tw, 16 * g, icon=icon, active=self.cos_tab == name) \
+                    and name != self.cos_tab:
+                self.cos_switch_tab(name)
+            x += tw + 2 * g
+        if self.ui_button('cos:done', 'Done', W - 12 * g - 56 * g, y - g, 56 * g, 16 * g, primary=True):
+            self.close_cos_screen()
+        self.rect(10 * g, y + 20 * g, W - 20 * g, max(1, g // 2), self.ui_col(self.UI_LINE2))
+        return y + 26 * g
+
+    def cos_switch_tab(self, name):
+        self.cos_tab = name
+        self.focus = None
+        self.cos_rename = None
+        self.cos_confirm = None
+
+    def cos_keys(self):
+        """Keys on the skins screen: typing into the rename / import name box, Escape to back out."""
+        for k, ch, ctrl, shift in self.typed:
+            if self.focus in ('rename', 'cosname'):
+                if k in ('return', 'kp_enter'):
+                    if self.focus == 'rename':
+                        self.cos_apply_rename()
+                    self.focus = None
+                elif k == 'escape':
+                    if self.focus == 'rename':
+                        self.cos_rename = None
+                    self.focus = None
+                else:
+                    self.field_type(k, ch, ctrl)
+                continue
+            if k == 'escape' and not self.ui_lock:
+                if self.cos_import:
+                    self.cos_cancel_import()
+                elif self.cos_rename:
+                    self.cos_rename = None
+                else:
+                    self.close_cos_screen()
+
+    # ==========================================================================
+    #  SKINS SCREEN: your library, importing (drag and drop / browse), layers, the presets
+    # ==========================================================================
+    def equipped_sel(self):
+        s = self.my_cos.get('skin') if self.my_cos else None
+        if s:
+            return ('custom', s[0])
+        return ('preset', int(self.opts.get('skin', 0)) % len(SKINS))
+
+    def cos_sel_valid(self):
+        sel = self.cos_sel
+        if sel is None or (sel[0] == 'custom' and self.library.find('skin', sel[1]) is None) \
+                or (sel[0] == 'import' and not self.cos_import):
+            self.cos_sel = sel = self.equipped_sel()
+        return sel
+
+    def cos_sel_view(self, sel):
+        """(preset index, cos) to draw the selected skin with (your cape stays on)."""
+        cape = self.my_cos.get('cape') if self.my_cos else None
+        if sel[0] == 'custom':
+            e = self.library.find('skin', sel[1])
+            return 0, {'skin': (sel[1], e['model'], e['layers']), 'cape': cape}
+        if sel[0] == 'import' and self.cos_import:
+            im = self.cos_import
+            return 0, {'skin': ('import', im['model'], LAYER_ALL), 'cape': cape}
+        return int(sel[1]), {'skin': None, 'cape': cape}
+
+    def cos_error(self, text):
+        self.cos_err = (text, self.t + 7.0)
+        self.sound('click')
+
+    def cos_take_drops(self, kind):
+        """Files dropped on the window while this screen is up."""
+        if not self.dropped_files:
+            return
+        files = self.dropped_files
+        self.dropped_files = []
+        for path, x, y in files:
+            if path.lower().endswith('.png'):
+                self.import_cos_file(path, kind)
+                return
+        self.cos_error('Only PNG files can be skins (%s)' % os.path.basename(files[0][0])[:30])
+
+    def import_cos_file(self, path, kind='skin'):
+        try:
+            if os.path.getsize(path) > SKIN_MAX_FILE:
+                raise SkinError('File is too big (%d KB; the limit is %d KB)' % (os.path.getsize(path) // 1024,
+                                                                                 SKIN_MAX_FILE // 1024))
+            with open(path, 'rb') as f:
+                data = f.read(SKIN_MAX_FILE + 1)
+            d = load_skin_png(data) if kind == 'skin' else load_cape_png(data)
+        except SkinError as ex:
+            self.cos_error(str(ex))
+            return False
+        except OSError as ex:
+            self.cos_error('Could not read the file (%s)' % (ex.strerror or ex))
+            return False
+        name = os.path.splitext(os.path.basename(path))[0]
+        self.cos_begin_import(kind, d, name)
+        return True
+
+    def cos_begin_import(self, kind, d, name):
+        """A picture has been read and checked: show it, let them name it, pick the arm style, save."""
+        self.cos_import = {'kind': kind, 'rgba': d['rgba'], 'hash': d['hash'], 'model': d.get('model', 'classic'),
+                           'legacy': d.get('legacy', False), 'name': name}
+        self.cos_texture_set(kind, 'import', d['rgba'])
+        self.fields['cosname'] = self.library.clean_name(name, 'Skin' if kind == 'skin' else 'Cape')
+        self.cos_sel = ('import', None)
+        self.cos_rename = None
+        self.focus = None
+        self.cos_err = None
+        self.sound('click')
+
+    def cos_cancel_import(self):
+        self.cos_import = None
+        self.focus = None
+        self.cos_sel = self.equipped_sel()
+
+    def cos_save_import(self, equip):
+        im = self.cos_import
+        if not im:
+            return
+        name = self.fields.get('cosname', '').strip() or im['name']
+        try:
+            if im['kind'] == 'skin':
+                e = self.library.add_skin(im['rgba'], name, im['model'])
+                self.cos_sel = ('custom', e['id'])
+                if equip:
+                    self.equip_skin(self.cos_sel)
             else:
-                self.scene = 'title'
+                e = self.library.add_cape(im['rgba'], name)
+                self.cos_sel_cape = e['id']
+                if equip:
+                    self.equip_cape(e['id'])
+        except (SkinError, OSError) as ex:
+            self.cos_error(str(ex))
+            return
+        self.cos_import = None
+        self.focus = None
+        self.sound('click')
+
+    def equip_skin(self, sel):
+        o = self.opts
+        if sel[0] == 'preset':
+            o['skin'] = int(sel[1]) % len(SKINS)
+            o['cskin'] = ''
+        elif sel[0] == 'custom' and self.library.find('skin', sel[1]):
+            o['cskin'] = sel[1]
+        else:
+            return
+        self.cos_pulse = (sel, self.t)
+        self.cos_changed()
+
+    def equip_cape(self, h):
+        self.opts['ccape'] = h or ''
+        self.cos_pulse = (('cape', h), self.t)
+        self.cos_changed()
+
+    def cos_changed(self):
+        """Something equipped changed: remember it, and tell the LAN."""
+        self.refresh_my_cos()
+        self.save_options()
+        self.cos_announce()
+
+    def cos_start_rename(self, kind, h):
+        e = self.library.find(kind, h)
+        if not e:
+            return
+        self.cos_rename = (kind, h)
+        self.fields['rename'] = e['name']
+        self.focus = 'rename'
+
+    def cos_apply_rename(self):
+        if self.cos_rename:
+            kind, h = self.cos_rename
+            name = self.fields.get('rename', '').strip()
+            if name:
+                self.library.rename(kind, h, name)
+            self.cos_rename = None
+
+    def cos_delete(self, kind, h):
+        """Delete after a second click within two seconds."""
+        c = self.cos_confirm
+        if not (c and c[0] == kind and c[1] == h and self.t < c[2]):
+            self.cos_confirm = (kind, h, self.t + 2.5)
+            return False
+        self.cos_confirm = None
+        was = (self.my_cos.get('skin') or (None,))[0] if kind == 'skin' else self.my_cos.get('cape')
+        self.library.delete(kind, h)
+        tid = self.cos_tex.pop((kind, h), None)
+        if tid:
+            self.cos_tex_used.pop((kind, h), None)
+            glDeleteTextures(1, ctypes.byref(ctypes.c_uint(tid)))
+        if was == h:
+            if kind == 'skin':
+                self.opts['cskin'] = ''
+            else:
+                self.opts['ccape'] = ''
+            self.cos_changed()
+        if kind == 'skin':
+            self.cos_sel = self.equipped_sel()
+        else:
+            self.cos_sel_cape = None
+        self.sound('click')
+        return True
+
+    def preset_to_raster(self, k):
+        """A built-in skin as a 64x64 picture (each face of the model sampled from its atlas tile), so a preset
+        can be edited like any other skin."""
+        data = self.atlas_data
+        if k:
+            n = lambda part: 'skin%d_%s' % (k, part)
+            head = (n('hair'), n('chin'), n('face'), n('back'), n('side'), n('side'))
+            body = (n('body'), n('body'), n('front'), n('body'), n('body'), n('body'))
+            arm, leg = (n('arm'),) * 6, (n('leg'),) * 6
+        else:
+            head = ('steve_hair', 'steve_skin', 'steve_face', 'steve_back', 'steve_hair', 'steve_hair')
+            body, arm, leg = ('steve_shirt',) * 6, ('steve_skin',) * 6, ('steve_pants',) * 6
+        out = bytearray(SKIN_W * SKIN_H * 4)
+        for part, tiles in (('head', head), ('body', body), ('arm_r', arm), ('arm_l', arm), ('leg_r', leg), ('leg_l', leg)):
+            u, v, bw, bh, bd = SKIN_BOXES[part][0]
+            faces = (('top', bw, bd, True, True), ('bottom', bw, bd, True, False), ('front', bw, bh, False, False),
+                     ('back', bw, bh, False, False), ('right', bd, bh, False, False), ('left', bd, bh, False, False))
+            for (fname, fw, fh, flipx, flipy), tile in zip(faces, tiles):
+                ox, oy = _skin_face_origin(fname, bw, bh, bd)
+                i = TILE[tile]
+                tx, ty = (i % ATILES) * 16, (i // ATILES) * 16
+                for yy in range(fh):
+                    sy = (fh - 1 - yy) if flipy else yy
+                    sy = sy * 16 // fh
+                    for xx in range(fw):
+                        sx = (fw - 1 - xx) if flipx else xx
+                        sx = sx * 16 // fw
+                        so = ((ty + sy) * ATLAS + tx + sx) * 4
+                        do = ((v + oy + yy) * SKIN_W + u + ox + xx) * 4
+                        out[do:do + 3] = data[so:so + 3]
+                        out[do + 3] = 255
+        return out
+
+    def draw_skins(self, back=None):
+        """The skins screen: your library of skins (and the built-in ones), importing by drag and drop or a
+        file dialog, the 3D preview, layers, and the capes / animation tabs."""
+        e = self.ui_screen_begin()
+        if e is None:
+            return
+        self.cos_keys()
+        g = self.gs
+        oy = (1 - e) * 10 * g
+        top = self.ui_header('COSMETICS', {'skins': 'Skins', 'capes': 'Capes', 'anims': 'Animation style'}.get(self.cos_tab, ''), oy)
+        if self.cos_tab == 'capes':
+            self.draw_capes_tab(top)
+        elif self.cos_tab == 'anims':
+            self.draw_anims_tab(top)
+        else:
+            self.draw_skins_tab(top)
+        self.ui_screen_end()
+
+    def ui_preview(self, key, x, y, w, h, skin=0, cos=None, walk=True, pose=None):
+        """A 3D player in a dark frame: drag to turn, wheel to zoom.  Returns the camera dict."""
+        cam = self.prev_cam.get(key)
+        if cam is None:
+            cam = self.prev_cam[key] = {'yaw': 28.0, 'pitch': 12.0, 'zoom': 1.0, 'auto': True, 'drag': None, 'idle': 0.0}
+        g, dt = self.gs, self.frame_dt
+        hov = self.ui_hovered(x, y, w, h)
+        if hov and self.wheel:
+            cam['zoom'] = clamp(cam['zoom'] * (1.12 ** self.wheel), 0.6, 2.6)
+            self.wheel = 0
+        if cam['drag']:
+            if self.lmb:
+                dx, dy = self.mx - cam['drag'][0], self.my - cam['drag'][1]
+                cam['yaw'] = cam['drag'][2] + dx * 0.9 / g
+                cam['pitch'] = clamp(cam['drag'][3] + dy * 0.6 / g, -45.0, 70.0)
+            else:
+                cam['drag'] = None
+                cam['idle'] = 0.0
+        elif hov and self.ui_clicked(x, y, w, h):
+            cam['drag'] = (self.mx, self.my, cam['yaw'], cam['pitch'])
+            cam['auto'] = False
+        if not cam['drag']:
+            cam['idle'] += dt
+            if cam['auto'] or cam['idle'] > 5.0:
+                cam['yaw'] = (cam['yaw'] + dt * 22.0) % 360
+        self.ui_panel(x, y, w, h, 4 * g, (0.03, 0.03, 0.04, 1.0))
+        self.draw_skin_preview(x + g, y + g, w - 2 * g, h - 2 * g, skin, cam['yaw'], cos=cos, pitch=cam['pitch'],
+                               zoom=cam['zoom'], walk=walk, key=key, pose=pose)
+        if hov:
+            self.ui_tip('Drag to turn, wheel to zoom')
+        return cam
+
+    def ui_view_buttons(self, key, x, y):
+        """Front / Back / Left / Right / Reset for a preview camera."""
+        g = self.gs
+        cam = self.prev_cam.get(key)
+        if cam is None:
+            return
+        bw = 22 * g
+        for i, (label, yaw, tip) in enumerate((('Front', 0.0, 'Front view'), ('Back', 180.0, 'Back view'),
+                                                ('Left', -90.0, 'Left side'), ('Right', 90.0, 'Right side'))):
+            if self.ui_button('%s:view%d' % (key, i), label, x + i * (bw + g), y, bw, 13 * g, tip=tip, dim=True):
+                cam.update(yaw=yaw, pitch=8.0, auto=False, idle=-30.0)
+        if self.ui_icon_button(key + ':reset', 'rotate', x + 4 * (bw + g), y, 13 * g, tip='Reset the camera'):
+            cam.update(yaw=28.0, pitch=12.0, zoom=1.0, auto=True, idle=0.0)
+
+    def draw_drop_zone(self, x, y, w, h, kind, new_label=None):
+        """The big target: drop a PNG here, or browse for one."""
+        g = self.gs
+        hov = self.ui_hovered(x, y, w, h)
+        pulse = 0.5 + 0.5 * math.sin(self.t * 2.2)
+        self.ui_round_rect(x, y, w, h, 4 * g, (0.07, 0.07, 0.085, 1.0))
+        self.ui_outline(x, y, w, h, 4 * g, (0.55, 0.76, 1.0, 0.25 + 0.15 * pulse + (0.2 if hov else 0.0)))
+        err = self.cos_err if self.cos_err and self.t < self.cos_err[1] else None
+        if err:
+            self.ui_icon('close', x + 8 * g, y + h / 2.0 - 6 * g, 12 * g, self.UI_DANGER)
+            self.ui_text(self.ui_text_fit(err[0], w - 160 * g), x + 24 * g, y + h / 2.0 - 10 * g, self.UI_DANGER)
+            self.ui_text('Drop another PNG, or browse for one', x + 24 * g, y + h / 2.0 + g, self.UI_DIM)
+        else:
+            self.ui_icon('import', x + 8 * g, y + h / 2.0 - 6 * g, 12 * g, self.UI_ACCENT)
+            what = 'DROP YOUR MINECRAFT SKIN' if kind == 'skin' else 'DROP YOUR CAPE'
+            self.ui_text(what, x + 24 * g, y + h / 2.0 - 10 * g)
+            sub = 'Drag & drop a PNG here (64x64, or an old 64x32)' if kind == 'skin' else 'Drag & drop a PNG here (64x32, or 22x17)'
+            self.ui_text(sub, x + 24 * g, y + h / 2.0 + g, self.UI_DIM)
+        bx = x + w - 62 * g
+        if new_label:
+            bx -= 54 * g
+            if self.ui_button('drop:new', new_label, x + w - 56 * g, y + h / 2.0 - 8 * g, 50 * g, 16 * g, icon='plus',
+                              tip='Start a skin from scratch in the editor'):
+                self.open_skin_editor(('new', None))
+        if self.ui_button('drop:browse', 'Browse Files', bx, y + h / 2.0 - 8 * g, 58 * g, 16 * g, icon='grid',
+                          tip='Pick a PNG file'):
+            path = self.ask_open_png('Open a Minecraft skin (PNG)' if kind == 'skin' else 'Open a cape (PNG)')
+            if path:
+                self.import_cos_file(path, kind)
+
+    def draw_import_panel(self, x, y, w, h):
+        """A picture waiting to be saved: its name, the arm style, save / save and equip / cancel."""
+        g = self.gs
+        im = self.cos_import
+        self.ui_panel(x, y, w, h, 4 * g, (0.08, 0.1, 0.13, 1.0), (0.55, 0.76, 1.0, 0.45))
+        self.ui_icon('check', x + 6 * g, y + 4 * g, 10 * g, self.UI_OK)
+        self.ui_text('SKIN READY TO SAVE' if im['kind'] == 'skin' else 'CAPE READY TO SAVE', x + 19 * g, y + 4 * g)
+        note = ('Old 64x32 skin: widened to the modern layout' if im['legacy'] else
+                ('Looks like a %s-arm skin' % ('slim' if im['model'] == 'slim' else 'classic') if im['kind'] == 'skin'
+                 else 'Shown on your player at the left'))
+        self.ui_text(note, x + 19 * g, y + 14 * g, self.UI_DIM)
+        self.ui_text('Name', x + 6 * g, y + 29 * g, self.UI_DIM)
+        self.ui_field('cosname', x + 30 * g, y + 26 * g, 90 * g, 14 * g, 'Skin name', self.ui_print_allowed())
+        bx = x + 124 * g
+        if im['kind'] == 'skin':
+            self.ui_text('Arms', bx, y + 29 * g, self.UI_DIM)
+            if self.ui_chip('imp:classic', 'Classic', bx + 20 * g, y + 27 * g, 34 * g, im['model'] == 'classic', 'Steve-style 4 px arms'):
+                im['model'] = 'classic'
+            if self.ui_chip('imp:slim', 'Slim', bx + 56 * g, y + 27 * g, 30 * g, im['model'] == 'slim', 'Alex-style 3 px arms'):
+                im['model'] = 'slim'
+        by = y + h - 20 * g
+        if self.ui_button('imp:save', 'Save', x + 6 * g, by, 46 * g, 16 * g, icon='import', tip='Keep it in your library'):
+            self.cos_save_import(False)
+        if self.ui_button('imp:equip', 'Save & Equip', x + 56 * g, by, 70 * g, 16 * g, primary=True, icon='check'):
+            self.cos_save_import(True)
+        if self.ui_button('imp:cancel', 'Cancel', x + w - 52 * g, by, 46 * g, 16 * g, dim=True):
+            self.cos_cancel_import()
+
+    def draw_skins_tab(self, top):
+        g, W, H = self.gs, self.W, self.H
+        lib = self.library
+        self.cos_take_drops('skin')
+        bottom = H - 8 * g
+        sel = self.cos_sel_valid()
+        skin_idx, cos = self.cos_sel_view(sel)
+        # ---- left: the big preview and what you can do with the chosen skin
+        lx, lw = 10 * g, 140 * g
+        ph = max(90 * g, min(150 * g, bottom - top - 74 * g))
+        self.ui_preview('skins', lx, top, lw, ph, skin_idx, cos, walk=True)
+        self.ui_view_buttons('skins', lx + 2 * g, top + ph + 3 * g)
+        ay = top + ph + 20 * g
+        bw2 = (lw - 3 * g) / 2.0
+        equipped = sel == self.equipped_sel()
+        if sel[0] == 'import':
+            self.ui_text('Save the new skin to equip it', lx, ay + 4 * g, self.UI_DIM)
+        else:
+            if self.ui_button('sk:equip', 'Equipped' if equipped else 'Equip', lx, ay, bw2, 16 * g, primary=not equipped,
+                              enabled=not equipped, icon='check'):
+                self.equip_skin(sel)
+            if self.ui_button('sk:edit', 'Edit', lx + bw2 + 3 * g, ay, bw2, 16 * g, icon='edit', tip='Open in the skin editor'):
+                self.open_skin_editor(sel)
+            if sel[0] == 'custom':
+                if self.ui_button('sk:rename', 'Rename', lx, ay + 19 * g, bw2, 16 * g, icon='pencil'):
+                    self.cos_start_rename('skin', sel[1])
+                c = self.cos_confirm
+                sure = c and c[0] == 'skin' and c[1] == sel[1] and self.t < c[2]
+                if self.ui_button('sk:delete', 'Sure?' if sure else 'Delete', lx + bw2 + 3 * g, ay + 19 * g, bw2, 16 * g,
+                                  icon='trash', danger=True, tip='Click twice to delete this skin'):
+                    self.cos_delete('skin', sel[1])
+            else:
+                self.ui_text('Built-in skin', lx, ay + 23 * g, self.UI_DIM)
+            if self.my_cos.get('skin') or int(self.opts.get('skin', 0)):
+                if self.ui_button('sk:reset', 'Reset to default skin', lx, ay + 38 * g, lw, 14 * g, dim=True):
+                    self.equip_skin(('preset', 0))
+        # ---- right: drop zone or the import box, then the library
+        rx = lx + lw + 8 * g
+        rw = W - 10 * g - rx
+        if self.cos_import and self.cos_import['kind'] == 'skin':
+            self.draw_import_panel(rx, top, rw, 66 * g)
+            y = top + 72 * g
+        else:
+            self.draw_drop_zone(rx, top, rw, 40 * g, 'skin', 'New')
+            y = top + 46 * g
+        self.ui_text('YOUR SKINS', rx, y, self.UI_DIM)
+        self.ui_text('%d of %d' % (len(lib.skins), lib.MAX_SKINS), rx + 50 * g, y, (0.4, 0.4, 0.45, 1.0))
+        if sel[0] == 'custom':
+            self.draw_layer_chips(rx + 86 * g, y - 2 * g, rw - 86 * g, sel[1])
+        y += 14 * g
+        self.draw_skin_grid(rx, y, rw, bottom - y, sel)
+
+    def draw_layer_chips(self, x, y, w, h):
+        """The second layer's parts, on or off, and the arm style, for a saved skin."""
+        g = self.gs
+        e = self.library.find('skin', h)
+        if not e:
+            return
+        cw = 26 * g
+        labels = (('hat', 'Hat'), ('jacket', 'Jacket'), ('sleeve_r', 'R.Sleeve'), ('sleeve_l', 'L.Sleeve'),
+                  ('pants_r', 'R.Pants'), ('pants_l', 'L.Pants'))
+        widths = [max(cw, self.font.width(l, g) + 6 * g) for _, l in labels]
+        total = sum(widths) + 2 * g * (len(labels) - 1) + 44 * g
+        x = x + w - total if total < w else x
+        for (key, label), bit_info, wd in zip(labels, LAYER_NAMES, widths):
+            bit = bit_info[2]
+            if self.ui_chip('layer:' + key, label, x, y, wd, bool(e['layers'] & bit), 'Show the %s layer' % label.lower()):
+                self.library.set_skin_options(h, layers=e['layers'] ^ bit)
+                self.cos_changed()
+            x += wd + 2 * g
+        x += 4 * g
+        if self.ui_chip('layer:model', 'Slim' if e['model'] == 'slim' else 'Classic', x, y, 36 * g, e['model'] == 'slim',
+                        'Arm style: classic (4 px) or slim (3 px)'):
+            self.library.set_skin_options(h, model='classic' if e['model'] == 'slim' else 'slim')
+            self.cos_changed()
+
+    def draw_skin_grid(self, x, y, w, h, sel):
+        """Cards for every saved skin, then the built-in ones, in a scrolling grid."""
+        g = self.gs
+        lib = self.library
+        cw, chh, gap = 46 * g, 62 * g, 4 * g
+        cols = max(1, int((w - 4 * g + gap) // (cw + gap)))
+        items = [('custom', e) for e in reversed(lib.skins)]
+        rows = []
+        for i in range(0, len(items), cols):
+            rows.append(('cards', items[i:i + cols]))
+        if not items:
+            rows.append(('text', 'No saved skins yet - drop a PNG above, or browse for one.'))
+        rows.append(('label', 'BUILT-IN'))
+        presets = [('preset', k) for k in range(len(SKINS))]
+        for i in range(0, len(presets), cols):
+            rows.append(('cards', presets[i:i + cols]))
+        heights = [(chh + gap) if r[0] == 'cards' else 14 * g for r in rows]
+        content = sum(heights) + 2 * g
+        off = self.ui_scroll('skins', x, y, w, h, content)
+        self.ui_clip(x, y, w - 3 * g, h)
+        yy = y - off + g
+        for (kind, val), rh in zip(rows, heights):
+            if yy + rh >= y and yy <= y + h:
+                if kind == 'label':
+                    self.ui_text(val, x, yy + 3 * g, self.UI_DIM)
+                elif kind == 'text':
+                    self.ui_text(val, x, yy + 3 * g, self.UI_DIM)
+                else:
+                    for i, item in enumerate(val):
+                        self.draw_skin_card(item, x + i * (cw + gap), yy, cw, chh, sel)
+            yy += rh
+        self.ui_unclip()
+
+    def draw_skin_card(self, item, x, y, w, h, sel):
+        g = self.gs
+        kind, val = item
+        if kind == 'custom':
+            key = ('custom', val['id'])
+            name, sub = val['name'], (time.strftime('%d %b %Y', time.localtime(val['created'])) if val['created'] else '')
+            cos, idx = {'skin': (val['id'], val['model'], val['layers']), 'cape': None}, 0
+        else:
+            key = ('preset', val)
+            name, sub = SKINS[val][1], 'Built-in'
+            cos, idx = None, val
+        equipped = key == self.equipped_sel()
+        selected = key == sel
+        hov = self.ui_hovered(x, y, w, h)
+        a = self.ui_hover(('card',) + key, hov)
+        self.ui_round_rect(x, y, w, h, 3 * g, self.ui_mix(self.UI_CARD, self.UI_CARD2, a))
+        p = self.cos_pulse
+        flash = max(0.0, 1.0 - (self.t - p[1]) / 0.5) if p and p[0] == key else 0.0
+        if equipped:
+            self.ui_outline(x, y, w, h, 3 * g, (0.55, 0.76, 1.0, 0.75 + 0.25 * flash), 1.0 + flash)
+        elif selected:
+            self.ui_outline(x, y, w, h, 3 * g, (1.0, 1.0, 1.0, 0.45))
+        else:
+            self.ui_outline(x, y, w, h, 3 * g, self.ui_mix(self.UI_LINE, self.UI_LINE2, a))
+        ph = h - 22 * g
+        yaw = (self.t * 40.0) % 360 if hov else 24.0
+        self.draw_skin_preview(x + 2 * g, y + 2 * g, w - 4 * g, ph, idx, yaw, cos=cos, pitch=8.0, zoom=1.1 + 0.08 * flash,
+                               walk=hov, key='card:%s' % (val['id'] if kind == 'custom' else 'p%d' % val))
+        if self.cos_rename and kind == 'custom' and self.cos_rename == ('skin', val['id']):
+            self.ui_field('rename', x + 2 * g, y + h - 19 * g, w - 4 * g, 12 * g, 'Name', self.ui_print_allowed())
+            if self.focus != 'rename':
+                self.cos_apply_rename()
+        else:
+            self.ui_text(self.ui_text_fit(name, w - (14 * g if equipped else 6 * g)), x + 3 * g, y + h - 19 * g)
+        self.ui_text(sub, x + 3 * g, y + h - 10 * g, self.UI_ACCENT if equipped else self.UI_DIM)
+        if equipped:
+            self.ui_icon('check', x + w - 11 * g, y + h - 19 * g, 8 * g, self.UI_ACCENT)
+        if hov and self.ui_clicked(x, y, w, h):
+            now = self.t
+            if selected and now - self.cos_click_t < 0.4 and not equipped:
+                self.equip_skin(key)
+            else:
+                self.sound('click')
+            self.cos_sel = key
+            self.cos_click_t = now
+            self.cos_import = None
+
+    # ==========================================================================
+    #  CAPES: the model (six hinged slices of a 64x32 cape picture) and the capes tab
+    # ==========================================================================
+    def cape_lists(self):
+        """Display lists for the cape's slices (built once; texture coordinates are within any cape picture)."""
+        lists = self.__dict__.get('_cape_lists')
+        if lists:
+            return lists
+        n = CapeState.SEGMENTS
+        w, hh, d = 10 / 16.0, 16 / 16.0, 1 / 16.0
+        sh = hh / n
+        fx, fy = 1.0 / CAPE_W, 1.0 / CAPE_H
+        lists = []
+        for i in range(n):
+            v0, v1 = (1 + 16.0 * i / n) * fy, (1 + 16.0 * (i + 1) / n) * fy
+            uvs = ((1 * fx, 0 * fy, 11 * fx, 1 * fy),                      # top edge
+                   (11 * fx, 0 * fy, 21 * fx, 1 * fy),                     # bottom edge
+                   (12 * fx, v0, 22 * fx, v1),                             # the inside (-z, toward the back)
+                   (1 * fx, v0, 11 * fx, v1),                              # the outside (+z, what others see)
+                   (11 * fx, v0, 12 * fx, v1),                             # +x edge
+                   (0 * fx, v0, 1 * fx, v1))                               # -x edge
+            lst = glGenLists(1)
+            glNewList(lst, GL_COMPILE)
+            glBegin(GL_QUADS)
+            self.tex_box_uv(-w / 2, -sh, 0.0, w / 2, 0.0, d, uvs)
+            glEnd()
+            glEndList()
+            lists.append(lst)
+        self._cape_lists = lists
+        return lists
+
+    def cape_state(self, e):
+        cs = e.__dict__.get('cape_st')
+        if cs is None:
+            cs = e.cape_st = CapeState(phase=(getattr(e, 'id', 0) % 17) * 0.4)
+        return cs
+
+    def draw_cape(self, e, light, h, pose):
+        """The cape, hinged at the back of the neck, inside the torso's transform (so it leans with the body)."""
+        tex = self.cos_texture('cape', h)
+        if not tex:
+            return
+        cs = self.cape_state(e)
+        if e.__dict__.get('cape_frame') != self.fps_n or e.__dict__.get('cape_t') != self.t:
+            e.cape_frame, e.cape_t = self.fps_n, self.t
+            cs.update(self.frame_dt, e.x, e.y, e.z, e.yaw, getattr(e, 'on_ground', True), getattr(e, 'sprint', False),
+                      getattr(e, 'sneak', False), getattr(e, 'in_water', False))
+        armor = getattr(e, 'armor', None)
+        back = 0.125 + 0.015 + (0.065 if armor and len(armor) > 1 and armor[1] else 0.0)
+        glPushMatrix()
+        glTranslatef(0, 1.5 - 0.01, back)
+        glRotatef(cs.roll, 0, 0, 1)
+        glBindTexture(GL_TEXTURE_2D, tex)
+        lists = self.cape_lists()
+        prev = 0.0
+        sh = 1.0 / CapeState.SEGMENTS
+        for lst, ang in zip(lists, cs.angles()):
+            glRotatef(-(ang - prev), 1, 0, 0)
+            prev = ang
+            glCallList(lst)
+            glTranslatef(0, -sh, 0)
+        glPopMatrix()
+        glBindTexture(GL_TEXTURE_2D, self.tex)
+
+    def draw_cape_flat(self, h, x, y, w, hgt, col=(1, 1, 1, 1)):
+        """The outside of a cape as a flat picture (cards)."""
+        tex = self.cos_texture('cape', h)
+        if not tex:
+            return False
+        fx, fy = 1.0 / CAPE_W, 1.0 / CAPE_H
+        self.tex_quad(tex, x, y, w, hgt, self.ui_col(col), (1 * fx, 1 * fy, 11 * fx, 17 * fy))
+        return True
+
+    def draw_capes_tab(self, top):
+        g, W, H = self.gs, self.W, self.H
+        lib = self.library
+        self.cos_take_drops('cape')
+        bottom = H - 8 * g
+        sel = self.cos_sel_cape
+        if sel is not None and sel != 'import' and lib.find('cape', sel) is None:
+            sel = self.cos_sel_cape = None
+        if sel is None:
+            sel = self.cos_sel_cape = self.my_cos.get('cape')
+        if self.cos_import and self.cos_import['kind'] == 'cape':
+            sel = 'import'
+        # what the preview wears: your skin, the chosen cape
+        skin = self.my_cos.get('skin')
+        idx = int(self.opts.get('skin', 0)) % len(SKINS)
+        cos = {'skin': skin, 'cape': sel}
+        # ---- left: the preview runs a little loop so the cape has something to react to
+        lx, lw = 10 * g, 140 * g
+        ph = max(90 * g, min(160 * g, bottom - top - 66 * g))
+        fake = self.preview_entity('capes')
+        cyc = self.t % 9.0
+        if cyc < 2.5:
+            speed, fake.on_ground, fake.sprint = 0.0, True, False
+        elif cyc < 5.0:
+            speed, fake.on_ground, fake.sprint = 4.3, True, False
+        elif cyc < 7.5:
+            speed, fake.on_ground, fake.sprint = 5.6, True, True
+        else:
+            speed, fake.on_ground, fake.sprint = 0.0, True, False
+        fake.yaw = 0.0
+        fake.z -= speed * self.frame_dt                           # (it 'runs' forward; only the deltas matter)
+        if cyc > 7.6 and cyc < 8.4:                               # a hop
+            fake.y = 1.2 * math.sin((cyc - 7.6) / 0.8 * math.pi)
+            fake.on_ground = fake.y < 0.05
+        else:
+            fake.y = 0.0
+        fake.walk += speed * self.frame_dt * 1.6
+        fake.limb += (min(1.0, speed / 4.3) - fake.limb) * min(1, self.frame_dt * 10)
+        self.ui_preview('capes', lx, top, lw, ph, idx, cos, walk=None)
+        self.ui_view_buttons('capes', lx + 2 * g, top + ph + 3 * g)
+        ay = top + ph + 20 * g
+        bw2 = (lw - 3 * g) / 2.0
+        worn = self.my_cos.get('cape')
+        if sel == 'import':
+            self.ui_text('Save the new cape to equip it', lx, ay + 4 * g, self.UI_DIM)
+        elif sel is None:
+            self.ui_text('No cape equipped', lx, ay + 4 * g, self.UI_DIM)
+            self.ui_text('Pick one from the right, or drop a PNG', lx, ay + 14 * g, self.UI_DIM)
+        else:
+            if self.ui_button('cp:equip', 'Equipped' if worn == sel else 'Equip', lx, ay, bw2, 16 * g, primary=worn != sel,
+                              enabled=worn != sel, icon='check'):
+                self.equip_cape(sel)
+            if self.ui_button('cp:remove', 'Take off', lx + bw2 + 3 * g, ay, bw2, 16 * g, enabled=worn is not None, dim=True,
+                              tip='Wear no cape'):
+                self.equip_cape(None)
+            if self.ui_button('cp:rename', 'Rename', lx, ay + 19 * g, bw2, 16 * g, icon='pencil'):
+                self.cos_start_rename('cape', sel)
+            c = self.cos_confirm
+            sure = c and c[0] == 'cape' and c[1] == sel and self.t < c[2]
+            if self.ui_button('cp:delete', 'Sure?' if sure else 'Delete', lx + bw2 + 3 * g, ay + 19 * g, bw2, 16 * g,
+                              icon='trash', danger=True, tip='Click twice to delete this cape'):
+                self.cos_delete('cape', sel)
+        # ---- right: drop zone / import, the library
+        rx = lx + lw + 8 * g
+        rw = W - 10 * g - rx
+        if self.cos_import and self.cos_import['kind'] == 'cape':
+            self.draw_import_panel(rx, top, rw, 66 * g)
+            y = top + 72 * g
+        else:
+            self.draw_drop_zone(rx, top, rw, 40 * g, 'cape')
+            y = top + 46 * g
+        self.ui_text('YOUR CAPES', rx, y, self.UI_DIM)
+        self.ui_text('%d of %d' % (len(lib.capes), lib.MAX_CAPES), rx + 50 * g, y, (0.4, 0.4, 0.45, 1.0))
+        y += 14 * g
+        self.draw_cape_grid(rx, y, rw, bottom - y, sel)
+
+    def draw_cape_grid(self, x, y, w, h, sel):
+        g = self.gs
+        lib = self.library
+        cw, chh, gap = 40 * g, 62 * g, 4 * g
+        cols = max(1, int((w - 4 * g + gap) // (cw + gap)))
+        items = list(reversed(lib.capes))
+        rows = max(1, (len(items) + cols - 1) // cols)
+        content = rows * (chh + gap) + 2 * g
+        off = self.ui_scroll('capes', x, y, w, h, content)
+        self.ui_clip(x, y, w - 3 * g, h)
+        if not items:
+            self.ui_text('No capes yet - drop a 64x32 cape PNG above.', x, y + 3 * g, self.UI_DIM)
+        worn = self.my_cos.get('cape')
+        for i, e in enumerate(items):
+            cx = x + (i % cols) * (cw + gap)
+            cy = y - off + g + (i // cols) * (chh + gap)
+            if cy + chh < y or cy > y + h:
+                continue
+            key = ('cape', e['id'])
+            hov = self.ui_hovered(cx, cy, cw, chh)
+            a = self.ui_hover(key, hov)
+            self.ui_round_rect(cx, cy, cw, chh, 3 * g, self.ui_mix(self.UI_CARD, self.UI_CARD2, a))
+            p = self.cos_pulse
+            flash = max(0.0, 1.0 - (self.t - p[1]) / 0.5) if p and p[0] == key else 0.0
+            if worn == e['id']:
+                self.ui_outline(cx, cy, cw, chh, 3 * g, (0.55, 0.76, 1.0, 0.75 + 0.25 * flash), 1.0 + flash)
+            elif sel == e['id']:
+                self.ui_outline(cx, cy, cw, chh, 3 * g, (1.0, 1.0, 1.0, 0.45))
+            else:
+                self.ui_outline(cx, cy, cw, chh, 3 * g, self.ui_mix(self.UI_LINE, self.UI_LINE2, a))
+            fh = chh - 24 * g
+            fw = fh * 10 / 16.0
+            self.draw_cape_flat(e['id'], cx + (cw - fw) / 2.0, cy + 3 * g, fw, fh)
+            if self.cos_rename == ('cape', e['id']):
+                self.ui_field('rename', cx + 2 * g, cy + chh - 19 * g, cw - 4 * g, 12 * g, 'Name', self.ui_print_allowed())
+                if self.focus != 'rename':
+                    self.cos_apply_rename()
+            else:
+                self.ui_text(self.ui_text_fit(e['name'], cw - 6 * g), cx + 3 * g, cy + chh - 19 * g)
+            sub = time.strftime('%d %b %Y', time.localtime(e['created'])) if e['created'] else ''
+            self.ui_text('Equipped' if worn == e['id'] else sub, cx + 3 * g, cy + chh - 10 * g,
+                         self.UI_ACCENT if worn == e['id'] else self.UI_DIM)
+            if hov and self.ui_clicked(cx, cy, cw, chh):
+                if sel == e['id'] and self.t - self.cos_click_t < 0.4 and worn != e['id']:
+                    self.equip_cape(e['id'])
+                else:
+                    self.sound('click')
+                self.cos_sel_cape = e['id']
+                self.cos_click_t = self.t
+                self.cos_import = None
+        self.ui_unclip()
+
+    # ==========================================================================
+    #  SKIN EDITOR SCREEN
+    # ==========================================================================
+    def open_skin_editor(self, sel):
+        """Start editing a skin: a saved one, a built-in one (copied), the one being imported, or a new one."""
+        lib = self.library
+        kind = sel[0]
+        if kind == 'custom':
+            e = lib.find('skin', sel[1])
+            rgba = lib.raster('skin', sel[1]) if e else None
+            if rgba is None:
+                self.cos_error('That skin\'s picture is missing')
+                return
+            ed = SkinEditor(rgba, e['model'], ('custom', sel[1]), e['name'])
+        elif kind == 'preset':
+            k = int(sel[1]) % len(SKINS)
+            ed = SkinEditor(self.preset_to_raster(k), 'classic', ('preset', k), SKINS[k][1])
+        elif kind == 'import' and self.cos_import and self.cos_import['kind'] == 'skin':
+            im = self.cos_import
+            ed = SkinEditor(im['rgba'], im['model'], ('new', None), self.fields.get('cosname') or im['name'])
+            self.cos_import = None
+        else:
+            ed = SkinEditor(self.preset_to_raster(0), 'classic', ('new', None), 'New Skin')
+        self.cos_editor = ed
+        self.fields['edname'] = ed.name
+        self.fields['hex'] = ed.hex()
+        self.edit_leave_t = 0.0
+        self.cos_texture_set('skin', 'edit', ed.rgba)
+        ed.changed = False
+        self.focus = None
+        self.close_cos_screen(to='skinedit')
+
+    def skinedit_keys(self):
+        ed = self.cos_editor
+        for k, ch, ctrl, shift in self.typed:
+            if self.focus in ('edname', 'hex'):
+                if k in ('return', 'kp_enter', 'escape', 'tab'):
+                    if self.focus == 'hex':
+                        if ed.set_hex(self.fields['hex']):
+                            self.fields['hex'] = ed.hex()
+                    self.focus = None
+                else:
+                    self.field_type(k, ch, ctrl)
+                continue
+            if self.ui_lock:
+                continue
+            if k == 'escape':
+                self.skinedit_leave()
+            elif ctrl and k == 'z' and shift:
+                ed.redo()
+            elif ctrl and k == 'z':
+                ed.undo()
+            elif ctrl and k == 'y':
+                ed.redo()
+            elif ctrl and k == 's':
+                self.skinedit_save(False)
+            elif k == 'p':
+                self.skinedit_tool('pencil')
+            elif k == 'e':
+                self.skinedit_tool('eraser')
+            elif k == 'i':
+                self.skinedit_tool('dropper')
+            elif k == 'b':
+                self.skinedit_tool('bucket')
+            elif k == 'm':
+                ed.mirror = not ed.mirror
+            elif ctrl and k == 'c' and ed.hover:
+                ed.copy_face(*ed.hover)
+            elif ctrl and k == 'v' and ed.hover:
+                ed.paste_face(*ed.hover)
+            elif k == 'delete' and ed.hover:
+                ed.clear_face(*ed.hover)
+
+    def skinedit_tool(self, tool):
+        ed = self.cos_editor
+        if tool != ed.tool:
+            ed.last_tool = ed.tool
+        ed.tool = tool
+
+    def skinedit_leave(self):
+        """Back to the skins screen; unsaved work needs a second Escape / click within three seconds."""
+        ed = self.cos_editor
+        if ed.dirty and self.t - self.edit_leave_t > 3.0:
+            self.edit_leave_t = self.t
+            return
+        self.cos_editor = None
+        self.focus = None
+        self.close_cos_screen(to='skins')
+
+    def skinedit_save(self, as_new):
+        """Keep the skin: a new library entry (the picture's hash is its id); editing a saved skin replaces it."""
+        ed = self.cos_editor
+        name = (self.fields.get('edname') or '').strip() or ed.name
+        lib = self.library
+        rgba, legacy = skin_normalize(SKIN_W, SKIN_H, ed.rgba)
+        old = ed.source[1] if ed.source[0] == 'custom' and not as_new else None
+        old_e = lib.find('skin', old) if old else None
+        layers = old_e['layers'] if old_e else LAYER_ALL
+        try:
+            e = lib.add_skin(rgba, name if (as_new or not old_e) else old_e['name'], ed.model, layers)
+        except (SkinError, OSError) as ex:
+            self.cos_error(str(ex))
+            self.notify(str(ex), 5)
+            return
+        if old_e and e['id'] != old:
+            was_equipped = (self.my_cos.get('skin') or (None,))[0] == old
+            lib.delete('skin', old)
+            tid = self.cos_tex.pop(('skin', old), None)
+            if tid:
+                self.cos_tex_used.pop(('skin', old), None)
+                glDeleteTextures(1, ctypes.byref(ctypes.c_uint(tid)))
+            if was_equipped:
+                self.opts['cskin'] = e['id']
+                self.cos_changed()
+        elif old_e and e['id'] == old:
+            lib.rename('skin', old, name)
+            lib.set_skin_options(old, model=ed.model)
+            if (self.my_cos.get('skin') or (None,))[0] == old:
+                self.cos_changed()
+        ed.source = ('custom', e['id'])
+        ed.name = e['name']
+        ed.dirty = False
+        self.cos_sel = ('custom', e['id'])
+        self.notify('Saved "%s"' % e['name'], 2.5)
+        self.sound('click')
+
+    def skinedit_export(self):
+        ed = self.cos_editor
+        path = self.ask_save_png(self.fields.get('edname') or ed.name, 'Export the skin as a PNG')
+        if not path:
+            return
+        try:
+            write_file_atomic(path, png_encode(ed.rgba, SKIN_W, SKIN_H))
+            self.notify('Exported %s' % os.path.basename(path), 3)
+        except OSError as ex:
+            self.notify('Could not write the file (%s)' % (ex.strerror or ex), 5)
+
+    def skinedit_take_drops(self):
+        """A PNG dropped on the editor replaces the picture being edited (one undo step)."""
+        if not self.dropped_files:
+            return
+        files, self.dropped_files = self.dropped_files, []
+        for path, x, y in files:
+            if not path.lower().endswith('.png'):
+                continue
+            try:
+                with open(path, 'rb') as f:
+                    d = load_skin_png(f.read(SKIN_MAX_FILE + 1))
+            except (SkinError, OSError) as ex:
+                self.notify(str(ex), 5)
+                return
+            ed = self.cos_editor
+            ed.push_undo()
+            ed.rgba = bytearray(d['rgba'])
+            ed.model = d['model']
+            ed.changed = ed.dirty = True
+            return
+
+    def draw_skinedit(self):
+        e = self.ui_screen_begin()
+        if e is None:
+            return
+        ed = self.cos_editor
+        if ed is None:
+            self.ui_screen_end()
+            self.close_cos_screen(to='skins')
+            return
+        self.skinedit_keys()
+        self.skinedit_take_drops()
+        g, W, H = self.gs, self.W, self.H
+        oy = (1 - e) * 10 * g
+        y = 8 * g + oy
+        # ---- header: title, the name, model, save / export / back
+        self.ui_text('SKIN EDITOR', 12 * g, y + 2 * g)
+        self.ui_field('edname', 76 * g, y - g, 80 * g, 14 * g, 'Skin name', self.ui_print_allowed())
+        if self.ui_chip('ed:classic', 'Classic', 160 * g, y, 34 * g, ed.model == 'classic', 'Steve-style 4 px arms'):
+            ed.model, ed.changed = 'classic', True
+        if self.ui_chip('ed:slim', 'Slim', 196 * g, y, 28 * g, ed.model == 'slim', 'Alex-style 3 px arms'):
+            ed.model, ed.changed = 'slim', True
+        bx = W - 12 * g
+        leaving = ed.dirty and self.t - self.edit_leave_t < 3.0
+        if self.ui_button('ed:back', 'Discard?' if leaving else 'Back', bx - 44 * g, y - g, 44 * g, 16 * g, dim=not leaving,
+                          danger=leaving, tip='Unsaved changes: click again to discard them' if leaving else 'Back to your skins'):
+            self.skinedit_leave()
+        bx -= 48 * g
+        if self.ui_button('ed:export', 'Export', bx - 46 * g, y - g, 46 * g, 16 * g, icon='export', tip='Save a PNG file anywhere'):
+            self.skinedit_export()
+        bx -= 50 * g
+        if ed.source[0] == 'custom':
+            if self.ui_button('ed:savenew', 'Save as new', bx - 62 * g, y - g, 62 * g, 16 * g, icon='plus'):
+                self.skinedit_save(True)
+            bx -= 66 * g
+        if self.ui_button('ed:save', 'Save' + (' *' if ed.dirty else ''), bx - 46 * g, y - g, 46 * g, 16 * g, primary=True,
+                          icon='check', tip='Keep this skin in your library (Ctrl+S)'):
+            self.skinedit_save(False)
+        self.rect(10 * g, y + 20 * g, W - 20 * g, max(1, g // 2), self.ui_col(self.UI_LINE2))
+        top = y + 26 * g
+        bottom = H - 8 * g
+        # ---- left: the preview
+        lx, lw = 10 * g, 118 * g
+        ph = max(80 * g, min(150 * g, bottom - top - 22 * g))
+        if ed.changed:
+            self.cos_texture_set('skin', 'edit', ed.rgba)
+            ed.changed = False
+        self.ui_preview('edit', lx, top, lw, ph, 0, ed.cos(), walk=False)
+        self.ui_view_buttons('edit', lx + 2 * g, top + ph + 3 * g)
+        # ---- right: tools, colour, layers
+        rw = 100 * g
+        rx = W - 10 * g - rw
+        self.draw_skinedit_tools(ed, rx, top, rw, bottom - top)
+        # ---- middle: the canvas
+        cx = lx + lw + 6 * g
+        cw = rx - 6 * g - cx
+        self.draw_skin_canvas(ed, cx, top, cw, bottom - top)
+        self.ui_screen_end()
+
+    def draw_skinedit_tools(self, ed, x, y, w, h):
+        g = self.gs
+        self.ui_panel(x, y, w, h, 4 * g, (0.07, 0.07, 0.085, 1.0))
+        x += 4 * g
+        w -= 8 * g
+        y += 4 * g
+        s = 15 * g
+        self.ui_text('TOOLS', x, y, self.UI_DIM)
+        y += 11 * g
+        tx = x
+        for tool, tip, icon in ed.TOOLS:
+            if self.ui_icon_button('tool:' + tool, icon, tx, y, s, tip=tip, active=ed.tool == tool):
+                self.skinedit_tool(tool)
+            tx += s + g
+        if self.ui_icon_button('tool:mirror', 'mirror', tx + 2 * g, y, s, tip='Mirror: paint both sides at once (M)', active=ed.mirror):
+            ed.mirror = not ed.mirror
+        y += s + 2 * g
+        tx = x
+        if self.ui_icon_button('tool:undo', 'undo', tx, y, s, tip='Undo (Ctrl+Z)', enabled=bool(ed.undo_stack)):
+            ed.undo()
+        tx += s + g
+        if self.ui_icon_button('tool:redo', 'redo', tx, y, s, tip='Redo (Ctrl+Y)', enabled=bool(ed.redo_stack)):
+            ed.redo()
+        tx += s + g
+        if self.ui_icon_button('tool:copy', 'copy', tx, y, s, tip='Copy the face under the mouse (Ctrl+C)', enabled=ed.hover is not None):
+            if ed.hover:
+                ed.copy_face(*ed.hover)
+        tx += s + g
+        if self.ui_icon_button('tool:paste', 'paste', tx, y, s, tip='Paste onto the face under the mouse (Ctrl+V)',
+                               enabled=ed.clipboard is not None and ed.hover is not None):
+            if ed.hover:
+                ed.paste_face(*ed.hover)
+        tx += s + g
+        if self.ui_icon_button('tool:clear', 'trash', tx + 2 * g, y, s, tip='Clear the face under the mouse (Delete)',
+                               enabled=ed.hover is not None, danger=True):
+            if ed.hover:
+                ed.clear_face(*ed.hover)
+        y += s + 6 * g
+        # ---- colour
+        self.ui_text('COLOUR', x, y, self.UI_DIM)
+        y += 11 * g
+        y = self.draw_color_picker(ed, x, y, w)
+        y += 4 * g
+        # ---- layers
+        self.ui_text('SHOW', x, y, self.UI_DIM)
+        self.ui_text('base', x + 44 * g, y, self.UI_DIM)
+        self.ui_text('2nd', x + 70 * g, y, self.UI_DIM)
+        y += 11 * g
+        for part, label in ed.PARTS:
+            self.ui_text(label, x, y + 2 * g)
+            vis = ed.visible[part]
+            if self.ui_chip('vis:%s:0' % part, 'on' if vis[0] else 'off', x + 42 * g, y, 22 * g, vis[0], 'Show the %s' % label.lower()):
+                vis[0] = not vis[0]
+            if self.ui_chip('vis:%s:1' % part, 'on' if vis[1] else 'off', x + 68 * g, y, 22 * g, vis[1],
+                            'Show the second layer of the %s' % label.lower()):
+                vis[1] = not vis[1]
+            y += 13 * g
+
+    def draw_color_picker(self, ed, x, y, w):
+        """Hue strip and a saturation / value square (drawn as shaded quads), the current colour, a hex box
+        and recent colours.  Returns the y under it."""
+        g = self.gs
+        sq = w - 14 * g
+        hue = ed.hsv[0] % 1.0
+        hr, hg, hb = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        a = self.ui_alpha
+        glDisable(GL_TEXTURE_2D)
+        n = 6
+        glBegin(GL_QUADS)
+        for j in range(n):                                        # value: top 1 -> bottom 0
+            for i in range(n):                                    # saturation: left 0 -> right 1
+                for (si, vj) in ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)):
+                    sa, va = si / float(n), 1.0 - vj / float(n)
+                    glColor4f(va * (1 - sa + sa * hr), va * (1 - sa + sa * hg), va * (1 - sa + sa * hb), a)
+                    glVertex2f(x + sa * sq, y + (1.0 - va) * sq)
+        glEnd()
+        hx = x + sq + 4 * g
+        glBegin(GL_QUADS)
+        for k in range(6):
+            for kk, yy in ((k, y + k * sq / 6.0), (k + 1, y + (k + 1) * sq / 6.0)):
+                r, gg, b = colorsys.hsv_to_rgb((kk % 6) / 6.0, 1.0, 1.0)
+                glColor4f(r, gg, b, a)
+                if kk == k:
+                    glVertex2f(hx, yy)
+                    glVertex2f(hx + 8 * g, yy)
+                else:
+                    glVertex2f(hx + 8 * g, yy)
+                    glVertex2f(hx, yy)
+        glEnd()
+        self.ui_outline(x, y, sq, sq, 0, self.UI_LINE2)
+        self.ui_outline(hx, y, 8 * g, sq, 0, self.UI_LINE2)
+        mx_, my_ = x + ed.hsv[1] * sq, y + (1.0 - ed.hsv[2]) * sq
+        self.ui_outline(mx_ - 2 * g, my_ - 2 * g, 4 * g, 4 * g, 2 * g, (0, 0, 0, 0.9), 2.0)
+        self.ui_outline(mx_ - 2 * g, my_ - 2 * g, 4 * g, 4 * g, 2 * g, (1, 1, 1, 0.9))
+        hy = y + hue * sq
+        self.ui_round_rect(hx - g, hy - g, 10 * g, 2 * g, g, (1, 1, 1, 0.9))
+        # dragging in the square / the strip
+        pk = self.__dict__.get('ed_pick')
+        if self.lmb and not self.ui_lock:
+            if pk is None:
+                if self.clicked(x, y, sq, sq):
+                    pk = self.ed_pick = 'sv'
+                elif self.clicked(hx, y, 8 * g, sq):
+                    pk = self.ed_pick = 'hue'
+            if pk == 'sv':
+                ed.set_hsv(s=(self.mx - x) / float(sq), v=1.0 - (self.my - y) / float(sq))
+                self.fields['hex'] = ed.hex()
+            elif pk == 'hue':
+                ed.set_hsv(h=clamp((self.my - y) / float(sq), 0.0, 0.999))
+                self.fields['hex'] = ed.hex()
+        elif pk is not None:
+            self.ed_pick = None
+            ed.remember_color()
+        y += sq + 4 * g
+        c = ed.color
+        self.ui_round_rect(x, y, 14 * g, 14 * g, 2 * g, (c[0] / 255.0, c[1] / 255.0, c[2] / 255.0, 1.0))
+        self.ui_outline(x, y, 14 * g, 14 * g, 2 * g, self.UI_LINE2)
+        self.ui_text('#', x + 17 * g, y + 3 * g, self.UI_DIM)
+        self.ui_field('hex', x + 23 * g, y, w - 23 * g, 14 * g, 'rrggbb', '0123456789abcdefABCDEF')
+        if self.focus != 'hex' and self.fields.get('hex', '') != ed.hex():
+            self.fields['hex'] = ed.hex()
+        y += 18 * g
+        sw = 11 * g
+        for i, rc in enumerate(ed.recent[:12]):
+            cx_ = x + (i % 6) * (sw + g)
+            cy_ = y + (i // 6) * (sw + g)
+            self.ui_round_rect(cx_, cy_, sw, sw, g, (rc[0] / 255.0, rc[1] / 255.0, rc[2] / 255.0, 1.0))
+            self.ui_outline(cx_, cy_, sw, sw, g, (1, 1, 1, 0.6) if rc == ed.color else self.UI_LINE2)
+            if self.ui_clicked(cx_, cy_, sw, sw):
+                ed.set_color(rc)
+                self.fields['hex'] = ed.hex()
+        return y + 2 * (sw + g)
+
+    def draw_skin_canvas(self, ed, x, y, w, h):
+        """The unwrapped skin, big: checkerboard under it, the faces outlined, painting with the mouse."""
+        g = self.gs
+        px = max(2, int(min(w // 64, h // 64)))
+        cw = px * 64
+        cx = x + int((w - cw) // 2)
+        cy = y + int((h - cw) // 2)
+        self.ui_panel(x, y, w, h, 4 * g, (0.03, 0.03, 0.04, 1.0))
+        boxes = SKIN_BOXES_SLIM if ed.model == 'slim' else SKIN_BOXES
+        faces = []
+        for part, layers in boxes.items():
+            for layer, (u, v, bw, bh, bd) in enumerate(layers):
+                for name, fw, fh in (('top', bw, bd), ('bottom', bw, bd), ('right', bd, bh), ('front', bw, bh),
+                                     ('left', bd, bh), ('back', bw, bh)):
+                    ox, oy = _skin_face_origin(name, bw, bh, bd)
+                    faces.append((part, layer, name, u + ox, v + oy, fw, fh))
+        glDisable(GL_TEXTURE_2D)
+        glBegin(GL_QUADS)
+        for part, layer, name, fx, fy, fw, fh in faces:
+            for yy in range(0, fh, 2):
+                for xx in range(0, fw, 2):
+                    k = 0.16 if ((xx + yy) // 2) % 2 == 0 else 0.11
+                    if layer:
+                        k += 0.03
+                    glColor4f(k, k, k + 0.02, self.ui_alpha)
+                    x0, y0 = cx + (fx + xx) * px, cy + (fy + yy) * px
+                    x1, y1 = x0 + min(2, fw - xx) * px, y0 + min(2, fh - yy) * px
+                    glVertex2f(x0, y0)
+                    glVertex2f(x1, y0)
+                    glVertex2f(x1, y1)
+                    glVertex2f(x0, y1)
+        glEnd()
+        tex = self.cos_tex.get(('skin', 'edit'), 0)
+        if tex:
+            self.tex_quad(tex, cx, cy, cw, cw, (1, 1, 1, self.ui_alpha))
+        for part, layer, name, fx, fy, fw, fh in faces:
+            if not ed.visible[part][layer]:
+                self.rect(cx + fx * px, cy + fy * px, fw * px, fh * px, self.ui_col((0.02, 0.02, 0.03, 0.75)))
+            self.ui_outline(cx + fx * px, cy + fy * px, fw * px, fh * px, 0,
+                            (0.55, 0.76, 1.0, 0.22) if layer else (1.0, 1.0, 1.0, 0.13))
+        # ---- the mouse
+        inside = cx <= self.mx < cx + cw and cy <= self.my < cy + cw
+        tx, ty = int((self.mx - cx) // px), int((self.my - cy) // px)
+        tx, ty = clamp(tx, 0, 63), clamp(ty, 0, 63)
+        where = skin_part_at(tx, ty, ed.model) if inside else None
+        ed.hover = (tx, ty) if where else None
+        if inside and not self.ui_lock:
+            self.ui_outline(cx + tx * px, cy + ty * px, px, px, 0, (1, 1, 1, 0.9) if where else (1, 0.4, 0.4, 0.7))
+            if ed.mirror and where:
+                m = skin_mirror_texel(tx, ty, ed.model)
+                if m:
+                    self.ui_outline(cx + m[0] * px, cy + m[1] * px, px, px, 0, (0.55, 0.76, 1.0, 0.8))
+        pressed = inside and any(c[2] == 1 and cx <= c[0] < cx + cw and cy <= c[1] < cy + cw for c in self.clicks)
+        rpressed = inside and any(c[2] == 3 for c in self.clicks)
+        if not self.ui_lock:
+            if rpressed and where:
+                c = ed.pick(tx, ty)
+                if c:
+                    ed.set_color(c)
+                    ed.remember_color()
+            if self.lmb and (pressed or ed.stroke is not None) and self.__dict__.get('ed_pick') is None:
+                tool = ed.tool
+                if tool in ('pencil', 'eraser'):
+                    if ed.stroke is None:
+                        ed.begin_stroke(tx, ty)
+                        if pressed:
+                            ed.remember_color() if tool == 'pencil' else None
+                    lx_, ly_ = ed.stroke
+                    ed.paint_line(lx_, ly_, tx, ty, ed.color if tool == 'pencil' else None)
+                    ed.stroke = (tx, ty)
+                elif pressed and tool == 'bucket' and where:
+                    ed.push_undo()
+                    ed.fill(tx, ty, ed.color)
+                    ed.remember_color()
+                elif pressed and tool == 'dropper' and where:
+                    c = ed.pick(tx, ty)
+                    if c:
+                        ed.set_color(c)
+                        ed.remember_color()
+                        self.fields['hex'] = ed.hex()
+                    ed.tool = ed.last_tool if ed.last_tool != 'dropper' else 'pencil'
+            elif not self.lmb and ed.stroke is not None:
+                ed.end_stroke()
+        elif ed.stroke is not None:
+            ed.end_stroke()
+        # ---- status line
+        if where:
+            part, layer, face = where
+            label = dict(ed.PARTS)[part]
+            self.ui_text('%s - %s (%s)   %d, %d' % (label, face, 'second layer' if layer else 'base', tx, ty),
+                         x + 4 * g, y + h - 11 * g, self.UI_DIM)
+        else:
+            self.ui_text('Left: draw   Right: pick colour   Wheel over the model: zoom', x + 4 * g, y + h - 11 * g, self.UI_DIM)
+        self.ui_text('%dx' % px, x + w - 20 * g, y + h - 11 * g, self.UI_DIM)
 
     def pack_previews(self):
         """A little strip of tiles for each texture pack (one texture: a row of 4 tiles per pack), made once."""
@@ -31398,7 +35168,7 @@ class Game:
         if self.button('Options...', x, y + 24 * g, bw):
             self.overlay = 'options'
         if self.button('Skins...', x, y + 48 * g, bw // 2 - 2 * g):
-            self.overlay = 'skins'
+            self.open_cos_screen('skins')
         if self.button('Texture Packs...', x + bw // 2 + 2 * g, y + 48 * g, bw // 2 - 2 * g):
             self.overlay = 'packs'
         if self.remote is None:
@@ -31543,7 +35313,7 @@ class Game:
         if self.button('Quit Game', x + bw // 2 + 2 * g, y + 56 * g, bw // 2 - 2 * g):
             self.running = False
         if self.button('Skins...', x, y + 80 * g, bw // 2 - 2 * g):
-            self.scene = 'skins'
+            self.open_cos_screen('skins')
         if self.button('Texture Packs...', x + bw // 2 + 2 * g, y + 80 * g, bw // 2 - 2 * g):
             self.scene = 'packs'
         left = 'Blockcraft %s' % VERSION
@@ -32007,6 +35777,7 @@ class Game:
         self.state_t = 0.0
         self.lan_note = ''
         self.add_chat('Your world is open to your network (LAN).')
+        self.cos_announce()
 
     def lan_add_ip(self):
         a = parse_addr(self.fields['add'])
@@ -32124,11 +35895,354 @@ class Game:
                                              1 if p.sleeping else 0, p.vehicle.id if p.vehicle else 0,
                                              9 if self.travel and self.travel.get('wait') else self.dim,
                                              sorted(p.effects), int(self.opts.get('skin', 0)),
-                                             1 if self.__dict__.get('blocking') else 0])
+                                             1 if self.__dict__.get('blocking') else 0, self.my_anim_packed()])
                 self.pdata_t = self.__dict__.get('pdata_t', 0) - 0.05
                 if self.pdata_t <= 0:
                     self.pdata_t = 10.0
                     self.send_host({'t': 'pdata', 'd': self.player_data(p)})
+                self.cos_retry_t = self.__dict__.get('cos_retry_t', 0) - 0.05
+                if self.cos_retry_t <= 0:
+                    self.cos_retry_t = 5.0
+                    self.cos_retry_missing()
+
+    # ==========================================================================
+    #  COSMETIC SYNC (LAN): the host is the authority on who wears what.  Pictures travel once, by hash, in
+    #  small reliable chunks, and are checked (size, format, hash) before anyone else gets them.
+    # ==========================================================================
+    COS_CHUNK = 4096                      # base64 characters per message (well inside a datagram)
+    COS_MAX_PNG = 24 * 1024               # a 64x64 skin PNG is a few KB; this is generous
+    COS_MAX_CHUNKS = 10
+    COS_MAX_UPLOADS = 2                   # per player, at once
+    COS_BAD_LIMIT = 25                    # rubbish messages before a player's cosmetic messages are ignored
+
+    def cos_peer(self, peer):
+        d = peer.__dict__.get('cos')
+        if d is None:
+            d = peer.cos = {'tokens': 3.0, 'token_t': self.t, 'up': {}, 'req': [], 'bad': 0}
+        return d
+
+    def cos_msg_for(self, kind):
+        """The announce message for what you wear of a kind."""
+        c = self.my_cos or {}
+        if kind == 'skin':
+            s = c.get('skin')
+            return {'t': 'cos', 'k': 'skin', 'h': s[0] if s else '', 'm': s[1] if s else 'classic', 'L': s[2] if s else LAYER_ALL}
+        return {'t': 'cos', 'k': 'cape', 'h': c.get('cape') or '', 'm': 'classic', 'L': 0}
+
+    def cos_valid(self, m):
+        """(kind, hash or '', model, layers) from a cos / cosset message, or None when it is not right."""
+        if not isinstance(m, dict):
+            return None
+        kind, h, model, L = m.get('k'), m.get('h', ''), m.get('m', 'classic'), m.get('L', LAYER_ALL)
+        if kind not in ('skin', 'cape') or not isinstance(h, str) or (h and not is_cosmetic_hash(h)):
+            return None
+        if model not in SKIN_MODELS or not isinstance(L, int) or isinstance(L, bool):
+            return None
+        return kind, h, model, L & LAYER_ALL
+
+    def cos_value(self, kind, h, model, L):
+        if not h:
+            return None
+        return (h, model, L) if kind == 'skin' else h
+
+    def cosset_msg(self, name, kind, value):
+        if kind == 'skin':
+            return {'t': 'cosset', 'p': name, 'k': 'skin', 'h': value[0] if value else '', 'm': value[1] if value else 'classic',
+                    'L': value[2] if value else LAYER_ALL}
+        return {'t': 'cosset', 'p': name, 'k': 'cape', 'h': value or '', 'm': 'classic', 'L': 0}
+
+    def load_cos_saved(self, d):
+        """The world file's record of who wore what (so a player who comes back looks right at once)."""
+        self.player_cos = {}
+        if not isinstance(d, dict):
+            return
+        for name, e in list(d.items())[:256]:
+            if not isinstance(name, str) or not isinstance(e, dict):
+                continue
+            entry = {'skin': None, 'cape': None}
+            s = e.get('skin')
+            if isinstance(s, list) and len(s) == 3 and is_cosmetic_hash(s[0]) and s[1] in SKIN_MODELS \
+                    and isinstance(s[2], int) and not isinstance(s[2], bool):
+                entry['skin'] = (s[0], s[1], s[2] & LAYER_ALL)
+            c = e.get('cape')
+            if is_cosmetic_hash(c):
+                entry['cape'] = c
+            if entry['skin'] or entry['cape']:
+                self.player_cos[name[:16]] = entry
+
+    def cos_announce(self):
+        """Tell the LAN what you wear (a client tells the host; the host tells everyone)."""
+        if not self.net or not self.remote or self.player is None:
+            return
+        for kind in ('skin', 'cape'):
+            m = self.cos_msg_for(kind)
+            if self.remote == 'client':
+                if self.__dict__.get('host_peer'):
+                    self.send_host(m)
+            else:
+                kind, h, model, L = self.cos_valid(m)
+                self.host_set_cos(self.player.name, kind, self.cos_value(kind, h, model, L))
+
+    def cos_roster(self):
+        """Who wears what, for a joining player: [[name, kind, hash, model, layers], ...]."""
+        out = []
+        online = {rp.name for rp in self.remote_players.values()}
+        if self.player is not None:
+            online.add(self.player.name)
+        for name, entry in self.player_cos.items():
+            if name not in online:
+                continue
+            for kind in ('skin', 'cape'):
+                v = entry.get(kind)
+                if v:
+                    m = self.cosset_msg(name, kind, v)
+                    out.append([name, kind, m['h'], m['m'], m['L']])
+        return out
+
+    def apply_cos_roster(self, rows):
+        if not isinstance(rows, list):
+            return
+        for row in rows[:64]:
+            if not isinstance(row, list) or len(row) < 5:
+                continue
+            v = self.cos_valid({'k': row[1], 'h': row[2], 'm': row[3], 'L': row[4]})
+            if v is None or not isinstance(row[0], str):
+                continue
+            kind, h, model, L = v
+            entry = self.player_cos.setdefault(row[0][:16], {'skin': None, 'cape': None})
+            entry[kind] = self.cos_value(kind, h, model, L)
+            if h and not self.library.has(kind, h):
+                self.cos_request(kind, h)
+
+    def cos_request(self, kind, h):
+        """Ask the host for a picture we don't have (once every ten seconds at most)."""
+        pend = self.__dict__.setdefault('cos_pending', {})
+        if self.t - pend.get(h, -99.0) < 10.0:
+            return
+        pend[h] = self.t
+        if self.remote == 'client' and self.__dict__.get('host_peer'):
+            self.send_host({'t': 'cosreq', 'k': kind, 'h': h})
+
+    def cos_retry_missing(self):
+        """Now and then: pictures the roster names that we still don't have get asked for again."""
+        if self.remote != 'client':
+            return
+        for name, entry in self.player_cos.items():
+            s = entry.get('skin')
+            if s and not self.library.has('skin', s[0]):
+                self.cos_request('skin', s[0])
+            c = entry.get('cape')
+            if c and not self.library.has('cape', c):
+                self.cos_request('cape', c)
+
+    def cos_take_chunk(self, up, m):
+        """One piece of a picture.  The reliable channel keeps order, so pieces must come in order.  Returns the
+        whole PNG when complete, None while more is due, False when something is wrong."""
+        i, n, d = m.get('i'), m.get('n'), m.get('d')
+        if not isinstance(i, int) or not isinstance(n, int) or isinstance(i, bool) or isinstance(n, bool) \
+                or not isinstance(d, str):
+            return False
+        if not (1 <= n <= self.COS_MAX_CHUNKS) or not (0 <= i < n) or len(d) > self.COS_CHUNK + 8:
+            return False
+        if up['n'] is None:
+            up['n'] = n
+        elif up['n'] != n:
+            return False
+        if i != len(up['parts']):
+            return False
+        try:
+            raw = base64.b64decode(d, validate=True)
+        except (ValueError, TypeError):
+            return False
+        up['size'] += len(raw)
+        if up['size'] > self.COS_MAX_PNG:
+            return False
+        up['parts'].append(raw)
+        if len(up['parts']) == n:
+            return b''.join(up['parts'])
+        return None
+
+    def cos_check_png(self, kind, h, data):
+        """Decode and check a picture that arrived for hash h.  Returns the raster, or raises SkinError."""
+        d = load_skin_png(data) if kind == 'skin' else load_cape_png(data)
+        if d['hash'] != h:
+            raise SkinError('The picture does not match its id')
+        return d['rgba']
+
+    def cos_send_picture(self, peer, kind, h):
+        png = self.library.png(kind, h)
+        if not png or len(png) > self.COS_MAX_PNG:
+            return False
+        b = base64.b64encode(png).decode('ascii')
+        chunks = [b[i:i + self.COS_CHUNK] for i in range(0, len(b), self.COS_CHUNK)]
+        if len(chunks) > self.COS_MAX_CHUNKS:
+            return False
+        for i, c in enumerate(chunks):
+            self.net.send(peer, {'t': 'cosdata', 'k': kind, 'h': h, 'i': i, 'n': len(chunks), 'd': c})
+        return True
+
+    # -- host side ---------------------------------------------------------------------------------
+    def host_set_cos(self, name, kind, value):
+        entry = self.player_cos.setdefault(name, {'skin': None, 'cape': None})
+        entry[kind] = value
+        if self.net and self.remote == 'host':
+            self.broadcast(self.cosset_msg(name, kind, value))
+
+    def cos_in_use(self, kind, h):
+        """Is this picture worn by anyone here (the only pictures the host hands out)?"""
+        for entry in self.player_cos.values():
+            v = entry.get(kind)
+            if v and (v[0] if kind == 'skin' else v) == h:
+                return True
+        return False
+
+    def host_cos_msg(self, peer, rp, m):
+        """A player's cosmetic message.  Returns True when it was one (handled or dropped)."""
+        t = m.get('t')
+        if t not in ('cos', 'cosreq', 'cosdata'):
+            return False
+        ps = self.cos_peer(peer)
+        if ps['bad'] > self.COS_BAD_LIMIT:
+            return True
+        now = self.t
+        if t == 'cos':
+            v = self.cos_valid(m)
+            if v is None:
+                ps['bad'] += 1
+                return True
+            kind, h, model, L = v
+            ps['tokens'] = min(3.0, ps['tokens'] + (now - ps['token_t']) / 15.0)
+            ps['token_t'] = now
+            if ps['tokens'] < 1.0:
+                self.send_to_player(rp, {'t': 'coserr', 'why': 'Changing skins too fast - wait a moment'})
+                return True
+            ps['tokens'] -= 1.0
+            if not h:
+                self.host_set_cos(rp.name, kind, None)
+            elif self.library.has(kind, h):
+                self.host_set_cos(rp.name, kind, self.cos_value(kind, h, model, L))
+            else:
+                for k_ in [k_ for k_, u in ps['up'].items() if now - u['t0'] > 25.0]:
+                    del ps['up'][k_]                          # (an upload that never finished)
+                if h not in ps['up'] and len(ps['up']) >= self.COS_MAX_UPLOADS:
+                    self.send_to_player(rp, {'t': 'coserr', 'why': 'Too many skin uploads at once'})
+                    return True
+                ps['up'][h] = {'k': kind, 'm': model, 'L': L, 'parts': [], 'n': None, 'size': 0, 't0': now}
+                self.send_to_player(rp, {'t': 'cosreq', 'k': kind, 'h': h})
+        elif t == 'cosdata':
+            h = m.get('h')
+            up = ps['up'].get(h) if isinstance(h, str) else None
+            if up is None:
+                ps['bad'] += 1
+                return True
+            res = self.cos_take_chunk(up, m)
+            if res is False:
+                del ps['up'][h]
+                ps['bad'] += 1
+                self.send_to_player(rp, {'t': 'coserr', 'why': 'Skin upload rejected (bad data)'})
+            elif res is not None:
+                del ps['up'][h]
+                try:
+                    rgba = self.cos_check_png(up['k'], h, res)
+                except SkinError as ex:
+                    ps['bad'] += 1
+                    self.send_to_player(rp, {'t': 'coserr', 'why': 'Skin rejected: %s' % ex})
+                    return True
+                self.library.cache_put(up['k'], h, rgba)
+                self.host_set_cos(rp.name, up['k'], self.cos_value(up['k'], h, up['m'], up['L']))
+        elif t == 'cosreq':
+            kind, h = m.get('k'), m.get('h')
+            if kind not in ('skin', 'cape') or not is_cosmetic_hash(h):
+                ps['bad'] += 1
+                return True
+            ps['req'] = [x for x in ps['req'] if now - x < 2.0]
+            if len(ps['req']) >= 6:
+                return True                                   # (asking too often: wait)
+            ps['req'].append(now)
+            if self.cos_in_use(kind, h) and self.library.has(kind, h):
+                self.cos_send_picture(peer, kind, h)
+        return True
+
+    # -- client side -------------------------------------------------------------------------------
+    def client_cos_msg(self, m):
+        t = m.get('t')
+        if t not in ('cosset', 'cosreq', 'cosdata', 'coserr'):
+            return False
+        if t == 'cosset':
+            v = self.cos_valid(m)
+            name = m.get('p')
+            if v is None or not isinstance(name, str) or not name:
+                return True
+            kind, h, model, L = v
+            entry = self.player_cos.setdefault(name[:16], {'skin': None, 'cape': None})
+            entry[kind] = self.cos_value(kind, h, model, L)
+            if h and not self.library.has(kind, h):
+                self.cos_request(kind, h)
+        elif t == 'cosreq':                                   # the host wants a picture of mine
+            kind, h = m.get('k'), m.get('h')
+            if kind not in ('skin', 'cape') or not is_cosmetic_hash(h) or not self.__dict__.get('host_peer'):
+                return True
+            mine = self.my_cos or {}
+            worn = (mine.get('skin') or (None,))[0] if kind == 'skin' else mine.get('cape')
+            if worn == h and self.library.has(kind, h):
+                self.cos_send_picture(self.host_peer, kind, h)
+        elif t == 'cosdata':
+            h = m.get('h')
+            kind = m.get('k')
+            if kind not in ('skin', 'cape') or not is_cosmetic_hash(h):
+                return True
+            dl = self.__dict__.setdefault('cos_dl', {})
+            up = dl.get(h)
+            if up is None:
+                for k_ in [k_ for k_, u in dl.items() if self.t - u['t0'] > 25.0]:
+                    del dl[k_]
+                if len(dl) >= 6:
+                    return True
+                up = dl[h] = {'k': kind, 'parts': [], 'n': None, 'size': 0, 't0': self.t}
+            res = self.cos_take_chunk(up, m)
+            if res is False:
+                del dl[h]
+            elif res is not None:
+                del dl[h]
+                try:
+                    rgba = self.cos_check_png(kind, h, res)
+                except SkinError:
+                    return True
+                self.library.cache_put(kind, h, rgba)
+        elif t == 'coserr':
+            self.notify('Skin: %s' % str(m.get('why', ''))[:80], 5)
+        return True
+
+    def apply_anim_packed(self, rp, v):
+        """A LAN player's animation state from the packet (see anim_pack)."""
+        d = anim_unpack(v)
+        rp.anim_packed = int(v)
+        rp.anim_style = d['style']
+        rp.on_ground = d['on_ground']
+        rp.sprint = d['sprint']
+        rp.anim_vy = d['vy']
+        rp.in_water = d['in_water']
+        rp.on_ladder = d['on_ladder']
+        rp.flying = d['flying']
+        rp.hit_dir = d['hit_dir']
+        rp.swing_kind = d['swing_kind']
+
+    def my_anim_packed(self):
+        p = self.player
+        return anim_pack(self.opts.get('anim') or 'pvp', p.on_ground, p.sprint, 0.0 if p.on_ground else p.vy, p.in_water,
+                         p.on_ladder, p.flying, p.__dict__.get('hit_dir'), self.swing_kind if self.swinging else 0)
+
+    def remote_swing_from_packet(self, rp, s):
+        """A packet's swing value against the one we keep running locally: a new swing restarts it, otherwise
+        the local one (smoother than twenty steps a second) carries on."""
+        try:
+            s = float(s)
+        except (TypeError, ValueError):
+            return
+        if s > 0.0 and (rp.swing <= 0.0 or s < rp.swing - 0.45):
+            rp.swing = s
+        elif s <= 0.0 and rp.swing > 0.85:
+            rp.swing = 0.0
 
     def snapshot_for(self, peer):
         rp = peer.rp
@@ -32184,7 +36298,7 @@ class Game:
                        s[0] if s else 0, round(self.swing if self.swinging else 0, 2), 1 if me.sneak else 0,
                        1 if self.overlay == 'dead' else 0, [a[0] if a else 0 for a in me.armor], 1 if me.sleeping else 0,
                        1 if me.vehicle else 0, 1 if me.hurt_t > 0 else 0, sorted(me.effects),
-                       int(self.opts.get('skin', 0)), 1 if self.__dict__.get('blocking') else 0])
+                       int(self.opts.get('skin', 0)), 1 if self.__dict__.get('blocking') else 0, self.my_anim_packed()])
         for o in self.remote_players.values():
             if o is not rp and o.dim == rp.dim:
                 pl.append([o.name, round(o.x, 2), round(o.y, 2), round(o.z, 2), round(o.yaw), round(o.pitch),
@@ -32192,7 +36306,7 @@ class Game:
                            [a[0] if a else 0 for a in o.armor], 1 if o.sleeping else 0,
                            1 if getattr(o, 'riding', False) else 0, 1 if o.hurt_t > 0 else 0,
                            sorted(getattr(o, 'effects', {})), getattr(o, 'skin', 0),
-                           1 if o.__dict__.get('blocking') else 0])
+                           1 if o.__dict__.get('blocking') else 0, o.__dict__.get('anim_packed', 0)])
         wr, wt = self.weather_now()
         return {'tm': round(self.time, 2), 'e': ents, 'p': pl, 'dim': rp.dim, 'wx': [int(wr), int(wt)]}
 
@@ -32216,7 +36330,7 @@ class Game:
                                  'diff': getattr(self, 'difficulty', 2), 'hardcore': getattr(self, 'hardcore', False),
                                  'mods': self.mod_list(rp.dim), 'pdata': rp.pdata, 'spawn': [sx, sy, sz], 'name': name,
                                  'signs': self.sign_texts(rp.dim), 'jukes': self.juke_list(rp.dim),
-                                 'world': self.world_name, 'dim': rp.dim})
+                                 'world': self.world_name, 'dim': rp.dim, 'cos': self.cos_roster()})
             self.add_chat('%s joined the game' % name)
             self.broadcast({'t': 'chat', 's': '%s joined the game' % name}, skip=peer)
             self.sound('join')
@@ -32280,7 +36394,8 @@ class Game:
         if not rp or not isinstance(s, list) or len(s) < 13:
             return
         rp.tx, rp.ty, rp.tz, rp.tyaw, rp.tpitch = (float(v) for v in s[:5])
-        rp.held_item, rp.swing, rp.sneak = int(s[5]), float(s[6]), bool(s[7])
+        rp.held_item, rp.sneak = int(s[5]), bool(s[7])
+        self.remote_swing_from_packet(rp, s[6])
         rp.creative, rp.dead = bool(s[8]), bool(s[9])
         rp.armor = [([int(a), 1, 0] if a else None) for a in (s[10] or [0, 0, 0, 0])[:4]]
         if len(s) > 13 and s[13] != rp.dim:
@@ -32291,6 +36406,8 @@ class Game:
         rp.blocking = bool(s[16]) if len(s) > 16 else False
         rp.riding = bool(s[12])
         rp.effects = {int(k): [0, 1.0] for k in (s[14] if len(s) > 14 and isinstance(s[14], list) else ())}
+        if len(s) > 17 and isinstance(s[17], int) and not isinstance(s[17], bool):
+            self.apply_anim_packed(rp, s[17])
         if not getattr(rp, 'placed', False):
             rp.x, rp.y, rp.z = rp.tx, rp.ty, rp.tz
             rp.placed = True
@@ -32306,6 +36423,8 @@ class Game:
             self.broadcast({'t': 'chat', 's': s}, skip=peer)
             if s.startswith('<%s> ' % rp.name):
                 self.leo_check(rp.name, s[len(rp.name) + 3:], rp)
+            return
+        if self.host_cos_msg(peer, rp, m):
             return
         if t == 'duel_out':
             self.duel_out(rp.name)
@@ -32648,6 +36767,8 @@ class Game:
         w = self.world
         if w is None:
             return
+        if self.client_cos_msg(m):
+            return
         if t in ('set', 'sets', 'fx', 'chunk') and m.get('dim', 0) != self.dim:
             return                                          # about the dimension we just left
         if t == 'dimok':
@@ -32860,6 +36981,8 @@ class Game:
         self.player.spawn = (sx, sy, sz)
         self.world_spawn = (sx, sy, sz)
         self.player.creative = self.mode == 'creative'
+        self.apply_cos_roster(m.get('cos'))
+        self.cos_announce()
         if m.get('pdata'):
             self.apply_player_data(self.player, m['pdata'])
         self.need_spawn_drop = False
@@ -32952,7 +37075,8 @@ class Game:
                 self.remote_players[nm] = rp
             rp.dim = self.dim                   # snapshots only list players in our dimension (was left at 0 = unseen
             rp.tx, rp.ty, rp.tz, rp.tyaw, rp.tpitch = row[1:6]          # in the nether)
-            rp.held_item, rp.swing, rp.sneak, rp.dead = row[6], row[7], bool(row[8]), bool(row[9])
+            rp.held_item, rp.sneak, rp.dead = row[6], bool(row[8]), bool(row[9])
+            self.remote_swing_from_packet(rp, row[7])
             rp.armor = [([a, 1, 0] if a else None) for a in row[10]]
             rp.sleeping = bool(row[11])
             rp.riding = bool(row[12]) if len(row) > 12 else False
@@ -32962,6 +37086,8 @@ class Game:
             if len(row) > 15 and isinstance(row[15], int):
                 rp.skin = row[15]
             rp.blocking = bool(row[16]) if len(row) > 16 else False
+            if len(row) > 17 and isinstance(row[17], int) and not isinstance(row[17], bool):
+                self.apply_anim_packed(rp, row[17])
         for nm in [k for k in self.remote_players if k not in seen_p]:
             del self.remote_players[nm]
 
@@ -32989,8 +37115,7 @@ class Game:
         if self.overlay in ('chest', 'furnace') and self.open_cont is None:
             self.overlay = None
         for rp in self.remote_players.values():
-            if rp.swing:
-                rp.swing = max(0.0, rp.swing)
+            self.advance_remote_swing(rp, dt)
 
 
 # ----------------------------------------------------------------------------

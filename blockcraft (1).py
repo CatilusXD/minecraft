@@ -16899,8 +16899,9 @@ class MusicPlayer:
                 self.start_next()
 
     def pick(self):
+        self.bag = [t for t in self.bag if self.errors.get(t[0], 0) < 2]
         if not self.bag:
-            self.bag = list(self.tracks)
+            self.bag = [t for t in self.tracks if self.errors.get(t[0], 0) < 2]
             random.shuffle(self.bag)
             if len(self.bag) > 1 and self.bag[0][0] == self.last_path:
                 self.bag.append(self.bag.pop(0))              # (not the same track twice running)
